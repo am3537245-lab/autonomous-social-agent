@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: autonomous-social-agent
+    env: docker
+    plan: free
+    region: frankfurt
+    dockerfilePath: Dockerfile
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: IS_CLOUD_DEPLOYMENT
+        value: "true"
+      - key: GEMINI_API_KEYS
+        sync: false
+      - key: APP_SECRET_KEY
+        generateValue: true

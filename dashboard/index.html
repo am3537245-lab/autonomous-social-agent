@@ -1,0 +1,1484 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <!-- Progressive Web App (PWA) Meta & Icons -->
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#0B0F19">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="الموجّه الآلي">
+  <link rel="apple-touch-icon" href="/icons/icon-192.png">
+  <link rel="icon" type="image/png" href="/icons/icon-192.png">
+  <title>Autonomous Stealth Social Agent | لوحة التحكم الذاتية المتكيفة</title>
+  <!-- Tailwind CSS & Lucide Icons -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;600;700;800;900&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Cairo', 'sans-serif'] },
+          colors: {
+            brand: { 500: '#6366f1', 600: '#4f46e5', 700: '#4338ca' },
+            darkbg: '#0B0F19',
+            darkcard: '#111827',
+            darkborder: '#1F2937'
+          },
+          screens: {
+            'xs': '360px',
+            'sm': '640px',
+            'md': '768px',
+            'lg': '1024px',
+            'xl': '1280px',
+            '2xl': '1536px',
+            '4k': '2560px'
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    :root {
+      --sat: env(safe-area-inset-top, 0px);
+      --sab: env(safe-area-inset-bottom, 0px);
+      --sal: env(safe-area-inset-left, 0px);
+      --sar: env(safe-area-inset-right, 0px);
+    }
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+    }
+    html {
+      box-sizing: border-box;
+      -webkit-text-size-adjust: 100%;
+      text-size-adjust: 100%;
+      overflow-x: hidden;
+      width: 100%;
+      max-width: 100vw;
+    }
+    body {
+      font-family: 'Cairo', sans-serif;
+      background-color: #0B0F19;
+      color: #F3F4F6;
+      min-height: 100vh;
+      min-height: -webkit-fill-available;
+      min-height: 100dvh;
+      touch-action: manipulation;
+      overflow-x: hidden;
+      width: 100%;
+      max-width: 100vw;
+      margin: 0;
+      padding: 0;
+    }
+    /* Touch Target Governance (Fitts's Law >= 44x44px) */
+    .touch-target {
+      min-width: 44px;
+      min-height: 44px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      touch-action: manipulation;
+    }
+    /* iOS Safari Auto-Zoom Immunization: Font size >= 16px on mobile */
+    input, textarea, select {
+      font-size: 16px !important;
+    }
+    @media (min-width: 640px) {
+      input, textarea, select {
+        font-size: 0.8125rem !important; /* 13px on desktop/tablets */
+      }
+    }
+    /* Fluid Typography with clamp() */
+    .fluid-hero {
+      font-size: clamp(1.05rem, 3.2vw, 1.35rem);
+    }
+    .fluid-metric {
+      font-size: clamp(1.2rem, 4vw, 1.75rem);
+    }
+    .fluid-sub {
+      font-size: clamp(0.68rem, 1.8vw, 0.78rem);
+    }
+    /* Custom Scrollbars */
+    ::-webkit-scrollbar { width: 4px; height: 4px; }
+    ::-webkit-scrollbar-track { background: #111827; }
+    ::-webkit-scrollbar-thumb { background: #374151; border-radius: 2px; }
+    ::-webkit-scrollbar-thumb:hover { background: #4B5563; }
+    .scrollbar-none::-webkit-scrollbar { display: none; }
+    .scrollbar-none { -ms-overflow-style: none; scrollbar-width: none; }
+    .pulse-glow { box-shadow: 0 0 15px rgba(99, 102, 241, 0.35); }
+    /* Hardware safe area padding utilities */
+    .pt-safe { padding-top: max(0.5rem, env(safe-area-inset-top)); }
+    .pb-safe { padding-bottom: max(0.5rem, env(safe-area-inset-bottom)); }
+    .pl-safe { padding-left: max(0.75rem, env(safe-area-inset-left)); }
+    .pr-safe { padding-right: max(0.75rem, env(safe-area-inset-right)); }
+  </style>
+</head>
+<body class="min-h-[100dvh] flex flex-col antialiased selection:bg-indigo-600 selection:text-white max-w-full overflow-x-hidden">
+
+  <!-- TOP HEADER / TELEMETRY STATUS BAR -->
+  <header class="border-b border-gray-800 bg-gray-900/90 backdrop-blur-md sticky top-0 z-40 transition-all pt-safe pl-safe pr-safe">
+    <div class="h-14 sm:h-16 px-2.5 sm:px-5 flex items-center justify-between gap-2 max-w-7xl mx-auto w-full">
+      <!-- Logo & System Identity -->
+      <div class="flex items-center gap-2.5 min-w-0">
+        <div class="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center text-white shadow-lg shadow-indigo-500/25 shrink-0">
+          <i data-lucide="bot" class="w-5 h-5 sm:w-6 sm:h-6"></i>
+        </div>
+        <div class="min-w-0">
+          <h1 class="font-extrabold fluid-hero text-white flex items-center gap-1.5 truncate">
+            <span>الموجّه الآلي</span>
+            <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-indigo-500/20 text-indigo-400 font-mono border border-indigo-500/30 shrink-0">v2.5 FLUID</span>
+          </h1>
+          <p class="fluid-sub text-gray-400 truncate hidden xs:block">Meta Business &amp; TikTok Studio Daemon</p>
+        </div>
+      </div>
+
+      <!-- HARDWARE GOVERNANCE & TELEMETRY CONTROLS -->
+      <div class="flex items-center gap-1.5 sm:gap-3 shrink-0">
+        <!-- RAM Gauge (Compact on Mobile, Expanded on Desktop) -->
+        <div class="flex items-center gap-1.5 sm:gap-2 bg-gray-800/70 px-2 sm:px-3 py-1.5 rounded-lg border border-gray-700/60" title="استهلاك الذاكرة العشوائية">
+          <i data-lucide="cpu" class="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-400 shrink-0"></i>
+          <div class="text-[11px] sm:text-xs">
+            <div class="flex justify-between gap-1 text-gray-400 font-mono">
+              <span class="hidden md:inline">RAM:</span>
+              <span id="ram-text" class="text-emerald-400 font-bold">-- MB</span>
+            </div>
+            <div class="w-14 sm:w-28 h-1 sm:h-1.5 bg-gray-700 rounded-full mt-0.5 overflow-hidden">
+              <div id="ram-progress" class="h-full bg-emerald-500 rounded-full transition-all duration-500" style="width: 15%"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Page Association Oracle Status Pill -->
+        <button id="page-oracle-pill" onclick="verifyActivePageScopes()" title="اضغط لإعادة فحص الارتباط والصلاحيات" class="touch-target hidden sm:flex items-center gap-2 text-xs px-2.5 py-1.5 rounded-lg bg-gray-800/70 border border-gray-700/60 hover:border-emerald-500/50 transition-all">
+          <span id="oracle-indicator" class="w-2.5 h-2.5 rounded-full bg-emerald-400 shrink-0"></span>
+          <span id="oracle-status-text" class="text-emerald-300 font-bold truncate max-w-[120px]">فحص الصفحة</span>
+        </button>
+
+        <!-- Push Alert Toggle -->
+        <button id="push-btn" onclick="togglePushNotifications()" class="touch-target flex items-center gap-1.5 text-xs bg-gray-800/80 hover:bg-gray-700 text-gray-300 hover:text-white px-2.5 sm:px-3 py-1.5 rounded-lg border border-gray-700 transition-all" title="تفعيل إشعارات الهاتف">
+          <i data-lucide="bell" class="w-4 h-4 text-indigo-400 shrink-0"></i>
+          <span id="push-btn-text" class="hidden lg:inline text-xs">إشعارات الهاتف</span>
+        </button>
+
+        <!-- WebSocket Status Indicator -->
+        <div class="touch-target hidden xs:flex items-center gap-1.5 text-xs px-2 sm:px-2.5 py-1.5 rounded-lg bg-gray-800/70 border border-gray-700/60" title="حالة الاتصال الفوري">
+          <span id="ws-indicator" class="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse shrink-0"></span>
+          <span id="ws-status" class="text-gray-300 text-[11px] sm:text-xs hidden md:inline">جاري الاتصال...</span>
+        </div>
+
+        <!-- Link Account Trigger -->
+        <button onclick="openModal('link-account-modal')" class="touch-target flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold px-3 sm:px-3.5 py-1.5 sm:py-2 rounded-lg transition-all shadow-md shadow-indigo-600/30 shrink-0">
+          <i data-lucide="plus" class="w-4 h-4 shrink-0"></i>
+          <span class="hidden sm:inline">ربط صفحة جديدة</span>
+          <span class="sm:hidden text-xs">ربط</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- MAIN WORKSPACE CONTAINER -->
+  <div class="flex flex-1 overflow-hidden w-full max-w-full">
+
+    <!-- VERTICAL TENANT SWITCHER (DESKTOP SIDEBAR DOCK - HIDDEN ON MOBILE) -->
+    <aside class="hidden md:flex w-60 lg:w-64 border-l border-gray-800 bg-gray-900/60 flex-col justify-between p-4 shrink-0 overflow-y-auto">
+      <div class="space-y-4">
+        <div class="text-xs font-bold text-gray-400 uppercase tracking-wider px-2 flex justify-between items-center">
+          <span>الحسابات المتصلة</span>
+          <span id="account-count" class="bg-gray-800 text-gray-300 px-1.5 py-0.5 rounded text-[10px]">0</span>
+        </div>
+        <div id="account-list" class="space-y-2">
+          <!-- Dynamic Account Items Injected Here -->
+        </div>
+      </div>
+
+      <!-- Desktop Navigation Tabs -->
+      <nav class="space-y-1 pt-4 border-t border-gray-800">
+        <button onclick="switchTab('radar')" class="nav-tab touch-target w-full flex items-center justify-start gap-3 px-3 py-2.5 rounded-lg text-sm font-semibold transition-all text-indigo-400 bg-indigo-600/10" data-tab="radar">
+          <i data-lucide="radar" class="w-4 h-4 shrink-0"></i>
+          <span>رادار العمليات المباشر</span>
+        </button>
+        <button onclick="switchTab('brain')" class="nav-tab touch-target w-full flex items-center justify-start gap-3 px-3 py-2.5 rounded-lg text-sm font-semibold text-gray-400 hover:text-white hover:bg-gray-800/60 transition-all" data-tab="brain">
+          <i data-lucide="database" class="w-4 h-4 shrink-0"></i>
+          <span>فهرس المنشورات (Brain)</span>
+        </button>
+        <button onclick="switchTab('sandbox')" class="nav-tab touch-target w-full flex items-center justify-start gap-3 px-3 py-2.5 rounded-lg text-sm font-semibold text-gray-400 hover:text-white hover:bg-gray-800/60 transition-all" data-tab="sandbox">
+          <i data-lucide="flask-conical" class="w-4 h-4 shrink-0"></i>
+          <span>المحاكي التجريبي (Sandbox)</span>
+        </button>
+        <button onclick="switchTab('persona')" class="nav-tab touch-target w-full flex items-center justify-start gap-3 px-3 py-2.5 rounded-lg text-sm font-semibold text-gray-400 hover:text-white hover:bg-gray-800/60 transition-all" data-tab="persona">
+          <i data-lucide="settings" class="w-4 h-4 shrink-0"></i>
+          <span>إعدادات الشخصية والردود</span>
+        </button>
+      </nav>
+    </aside>
+
+    <!-- CONTENT DISPLAY AREA -->
+    <main class="flex-1 overflow-y-auto p-3 sm:p-5 md:p-6 bg-darkbg w-full max-w-full pb-[calc(4.5rem+env(safe-area-inset-bottom,0px))] md:pb-6">
+      <div class="max-w-7xl mx-auto w-full space-y-4 sm:space-y-6">
+
+        <!-- MOBILE HORIZONTAL ACCOUNT SELECTOR BAR (SHOWN ONLY ON SCREENS < 768px) -->
+        <div class="md:hidden pb-1 -mx-3 px-3 overflow-x-auto scrollbar-none flex items-center gap-2 border-b border-gray-800/80">
+          <span class="text-[10px] font-bold text-gray-500 uppercase shrink-0">الصفحات:</span>
+          <div id="mobile-account-list" class="flex items-center gap-2 shrink-0">
+            <!-- Dynamic Mobile Account Pills Injected Here -->
+          </div>
+          <button onclick="openModal('link-account-modal')" class="touch-target shrink-0 flex items-center gap-1 text-[11px] text-indigo-400 bg-indigo-950/40 border border-indigo-800/50 px-2.5 py-1 rounded-full">
+            <i data-lucide="plus" class="w-3.5 h-3.5"></i>
+            <span>إضافة</span>
+          </button>
+        </div>
+
+        <!-- ========================================== -->
+        <!-- TAB 1: LIVE RADAR & EVENT STREAM -->
+        <!-- ========================================== -->
+        <section id="tab-radar" class="tab-pane space-y-4 sm:space-y-6">
+          <div class="flex flex-col xs:flex-row xs:items-center justify-between gap-2">
+            <div>
+              <h2 class="fluid-hero font-extrabold text-white flex items-center gap-2">
+                <i data-lucide="activity" class="w-5 h-5 text-indigo-400 shrink-0"></i>
+                <span>رادار الردود والحماية المباشر</span>
+              </h2>
+              <p class="fluid-sub text-gray-400 mt-0.5">المعالجة العصبية الذاتية واستجابات الدرع الواقي للرسائل والتعليقات</p>
+            </div>
+            <button onclick="loadRadarLogs()" class="touch-target self-start xs:self-auto flex items-center gap-1.5 text-xs text-gray-300 hover:text-white bg-gray-800 hover:bg-gray-700 px-3 py-1.5 rounded-lg border border-gray-700 transition-all shrink-0">
+              <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+              <span>تحديث السجل</span>
+            </button>
+          </div>
+
+          <!-- Radar Stat Cards Grid: 2-Cols on Mobile / 4-Cols on Desktop -->
+          <div class="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4 w-full">
+            <div class="bg-darkcard border border-gray-800 rounded-xl p-3 sm:p-4 min-w-0">
+              <div class="flex items-center justify-between text-gray-400 text-[11px] sm:text-xs">
+                <span class="truncate">إجمالي المعاملات</span>
+                <i data-lucide="message-square" class="w-4 h-4 text-indigo-400 shrink-0"></i>
+              </div>
+              <div id="stat-total" class="fluid-metric font-black text-white mt-1.5">0</div>
+            </div>
+
+            <div class="bg-darkcard border border-gray-800 rounded-xl p-3 sm:p-4 min-w-0">
+              <div class="flex items-center justify-between text-gray-400 text-[11px] sm:text-xs">
+                <span class="truncate">ردود ذكية معتمدة</span>
+                <i data-lucide="check-circle" class="w-4 h-4 text-emerald-400 shrink-0"></i>
+              </div>
+              <div id="stat-replied" class="fluid-metric font-black text-emerald-400 mt-1.5">0</div>
+            </div>
+
+            <div class="bg-darkcard border border-gray-800 rounded-xl p-3 sm:p-4 min-w-0">
+              <div class="flex items-center justify-between text-gray-400 text-[11px] sm:text-xs">
+                <span class="truncate">حظر السبام (Shield)</span>
+                <i data-lucide="shield-alert" class="w-4 h-4 text-rose-400 shrink-0"></i>
+              </div>
+              <div id="stat-moderated" class="fluid-metric font-black text-rose-400 mt-1.5">0</div>
+            </div>
+
+            <div class="bg-darkcard border border-gray-800 rounded-xl p-3 sm:p-4 min-w-0">
+              <div class="flex items-center justify-between text-gray-400 text-[11px] sm:text-xs">
+                <span class="truncate">بصمات pHash (0 tokens)</span>
+                <i data-lucide="eye" class="w-4 h-4 text-cyan-400 shrink-0"></i>
+              </div>
+              <div id="stat-phash" class="fluid-metric font-black text-cyan-400 mt-1.5">0</div>
+            </div>
+          </div>
+
+          <!-- Live Feed Presentation (Polymorphic: Desktop Table vs Mobile Compact Card Stream) -->
+          <div class="bg-darkcard border border-gray-800 rounded-xl overflow-hidden shadow-xl w-full">
+            <div class="p-3 sm:p-4 border-b border-gray-800 flex justify-between items-center">
+              <h3 class="font-bold text-xs sm:text-sm text-gray-200 flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+                سجل الأحداث الحية والمباشرة
+              </h3>
+              <span class="text-[10px] sm:text-xs px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-bold">بث مباشر</span>
+            </div>
+
+            <!-- DESKTOP VIEWPORT (>= 768px): TABULAR RADAR -->
+            <div class="hidden md:block overflow-x-auto w-full">
+              <table class="w-full text-right text-xs">
+                <thead class="bg-gray-900/70 text-gray-400 font-semibold border-b border-gray-800">
+                  <tr>
+                    <th class="p-3">الوقت</th>
+                    <th class="p-3">المرسل</th>
+                    <th class="p-3">النوع</th>
+                    <th class="p-3">النص الوارد</th>
+                    <th class="p-3">الإجراء المتخذ</th>
+                    <th class="p-3">الرد أو السبب</th>
+                    <th class="p-3">السرعة/الثقة</th>
+                  </tr>
+                </thead>
+                <tbody id="radar-events-table" class="divide-y divide-gray-800/60 font-medium">
+                  <tr>
+                    <td colspan="7" class="text-center py-8 text-gray-500">لا توجد تفاعلات مسجلة حتى الآن</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <!-- MOBILE VIEWPORT (< 768px): COMPACT CARD STREAM (ZERO HORIZONTAL OVERFLOW) -->
+            <div id="radar-events-cards" class="md:hidden divide-y divide-gray-800/60 p-2 sm:p-3 space-y-2">
+              <div class="text-center py-8 text-gray-500 text-xs">لا توجد تفاعلات مسجلة حتى الآن</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ========================================== -->
+        <!-- TAB 2: POSTS & MULTIMODAL BRAIN EXPLORER -->
+        <!-- ========================================== -->
+        <section id="tab-brain" class="tab-pane hidden space-y-4 sm:space-y-6">
+          <div class="flex flex-col xs:flex-row xs:items-center justify-between gap-2">
+            <div>
+              <h2 class="fluid-hero font-extrabold text-white flex items-center gap-2">
+                <i data-lucide="sparkles" class="w-5 h-5 text-indigo-400 shrink-0"></i>
+                <span>فهرس المنشورات وذاكرة الوسائط (Analyze-Once)</span>
+              </h2>
+              <p class="fluid-sub text-gray-400 mt-0.5">تحليل وسائط المنشور وتخزينها كبيانات مهيكلة لتقليل استهلاك الرموز إلى الصفر</p>
+            </div>
+            <button onclick="openModal('index-post-modal')" class="touch-target self-start xs:self-auto flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold px-3.5 py-2 rounded-lg transition-all shrink-0">
+              <i data-lucide="plus-circle" class="w-4 h-4"></i>
+              <span>فهرسة منشور</span>
+            </button>
+          </div>
+
+          <div id="posts-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-5 w-full">
+            <!-- Dynamic Post Cards Injected Here -->
+          </div>
+        </section>
+
+        <!-- ========================================== -->
+        <!-- TAB 3: MULTIMODAL SANDBOX SIMULATOR -->
+        <!-- ========================================== -->
+        <section id="tab-sandbox" class="tab-pane hidden space-y-4 sm:space-y-6">
+          <div>
+            <h2 class="fluid-hero font-extrabold text-white flex items-center gap-2">
+              <i data-lucide="flask-conical" class="w-5 h-5 text-indigo-400 shrink-0"></i>
+              <span>المحاكي العصبي التفاعلي (Sandbox)</span>
+            </h2>
+            <p class="fluid-sub text-gray-400 mt-0.5">اختبر استجابة الذكاء الاصطناعي مع رسائل وصور العملاء الحقيقية قبل تشغيل الردود المباشرة</p>
+          </div>
+
+          <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6 w-full">
+            <!-- Input Simulator Form -->
+            <div class="lg:col-span-5 bg-darkcard border border-gray-800 rounded-xl p-3.5 sm:p-5 space-y-4">
+              <h3 class="font-bold text-xs sm:text-sm text-gray-200 border-b border-gray-800 pb-3 flex items-center gap-2">
+                <i data-lucide="message-circle" class="w-4 h-4 text-indigo-400"></i>
+                <span>بيانات التفاعل التجريبي</span>
+              </h3>
+
+              <div>
+                <label class="block text-xs font-semibold text-gray-400 mb-1.5">المنشور المستهدف (اختياري)</label>
+                <select id="sandbox-post-select" class="w-full bg-gray-900 border border-gray-700 rounded-lg p-2.5 text-[16px] sm:text-xs text-white focus:outline-none focus:border-indigo-500 min-h-[44px]">
+                  <option value="">بدون منشور محدد (استفسار عام في الرسائل)</option>
+                </select>
+              </div>
+
+              <div>
+                <label class="block text-xs font-semibold text-gray-400 mb-1.5">اسم العميل الافتراضي</label>
+                <input type="text" id="sandbox-sender" value="أحمد محمود" class="w-full bg-gray-900 border border-gray-700 rounded-lg p-2.5 text-[16px] sm:text-xs text-white focus:outline-none focus:border-indigo-500 min-h-[44px]">
+              </div>
+
+              <div>
+                <label class="block text-xs font-semibold text-gray-400 mb-1.5">نوع التفاعل</label>
+                <div class="flex gap-4 text-xs">
+                  <label class="touch-target flex items-center gap-2 cursor-pointer">
+                    <input type="radio" name="sandbox-type" value="comment" checked class="text-indigo-600 w-4 h-4">
+                    <span>تعليق على منشور</span>
+                  </label>
+                  <label class="touch-target flex items-center gap-2 cursor-pointer">
+                    <input type="radio" name="sandbox-type" value="dm" class="text-indigo-600 w-4 h-4">
+                    <span>رسالة خاصة (DM)</span>
+                  </label>
+                </div>
+              </div>
+
+              <div>
+                <label class="block text-xs font-semibold text-gray-400 mb-1.5">نص العميل الوارد</label>
+                <textarea id="sandbox-text" rows="3" placeholder="مثال: بكام ده وفيه شحن للإسكندرية؟ أو جرّب كلمة بذيئة لاختبار الدرع الواقي" class="w-full bg-gray-900 border border-gray-700 rounded-lg p-2.5 text-[16px] sm:text-xs text-white focus:outline-none focus:border-indigo-500"></textarea>
+              </div>
+
+              <div>
+                <label class="block text-xs font-semibold text-gray-400 mb-1.5">إرفاق سكرين شوت أو صورة منتج (اختياري)</label>
+                <input type="file" id="sandbox-image-file" accept="image/*" class="w-full text-xs text-gray-400 file:mr-2 file:py-2 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-gray-800 file:text-indigo-400 hover:file:bg-gray-700 cursor-pointer min-h-[44px]">
+              </div>
+
+              <button onclick="runSandboxSimulation()" id="sandbox-btn" class="touch-target w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2.5 rounded-lg text-xs transition-all shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2">
+                <i data-lucide="play" class="w-4 h-4"></i>
+                <span>تنفيذ المحاكاة الآن</span>
+              </button>
+            </div>
+
+            <!-- Execution Inspection Pane -->
+            <div class="lg:col-span-7 bg-darkcard border border-gray-800 rounded-xl p-3.5 sm:p-5 flex flex-col justify-between space-y-4 min-w-0">
+              <div>
+                <div class="flex justify-between items-center border-b border-gray-800 pb-3 gap-2">
+                  <h3 class="font-bold text-xs sm:text-sm text-gray-200 flex items-center gap-2 truncate">
+                    <i data-lucide="terminal" class="w-4 h-4 text-emerald-400 shrink-0"></i>
+                    <span>تقرير القرار والتفتيش العصبي</span>
+                  </h3>
+                  <span id="sandbox-badge" class="hidden text-[10px] px-2 py-0.5 rounded font-mono font-bold shrink-0"></span>
+                </div>
+
+                <div id="sandbox-empty-state" class="py-12 sm:py-16 text-center text-gray-500 text-xs">
+                  <i data-lucide="cpu" class="w-8 h-8 sm:w-10 sm:h-10 mx-auto mb-3 opacity-30"></i>
+                  أدخل رسالة واضغط "تنفيذ المحاكاة" لمعاينة القرار، استخراج السعر، وزمن المعالجة.
+                </div>
+
+                <div id="sandbox-results" class="hidden space-y-3 sm:space-y-4 mt-4 text-xs">
+                  <div class="p-3 rounded-lg bg-gray-900 border border-gray-800 space-y-1">
+                    <span class="text-gray-400 block font-semibold">فهم السياق (Understood Context):</span>
+                    <p id="res-context" class="text-gray-200 break-words"></p>
+                  </div>
+
+                  <div class="p-3 rounded-lg bg-gray-900 border border-gray-800 space-y-1">
+                    <span class="text-gray-400 block font-semibold">الإجراء المعتمد (Decision):</span>
+                    <p id="res-decision" class="font-bold text-sm text-indigo-400"></p>
+                  </div>
+
+                  <div id="box-public-reply" class="p-3 rounded-lg bg-emerald-950/20 border border-emerald-800/40 space-y-1">
+                    <span class="text-emerald-400 block font-semibold">الرد العام على التعليق:</span>
+                    <p id="res-public-reply" class="text-emerald-200 font-medium break-words"></p>
+                  </div>
+
+                  <div id="box-private-dm" class="p-3 rounded-lg bg-violet-950/20 border border-violet-800/40 space-y-1">
+                    <span class="text-violet-400 block font-semibold">الرد الخاص في الرسائل (DM):</span>
+                    <p id="res-private-dm" class="text-violet-200 font-medium break-words"></p>
+                  </div>
+
+                  <div class="p-3 rounded-lg bg-gray-900 border border-gray-800 space-y-1">
+                    <span class="text-gray-400 block font-semibold">الاستجابة الخام (JSON Schema Output):</span>
+                    <pre id="res-raw-json" class="bg-black/60 p-3 rounded font-mono text-[11px] text-green-400 overflow-x-auto max-h-48 break-all"></pre>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Latency & Metric Pill -->
+              <div id="sandbox-metrics-bar" class="hidden border-t border-gray-800 pt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-gray-400">
+                <span id="res-stage" class="font-mono text-indigo-400 text-[11px] truncate"></span>
+                <span id="res-latency" class="font-mono text-gray-300 text-[11px]"></span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ========================================== -->
+        <!-- TAB 4: PERSONA & KNOWLEDGE BASE -->
+        <!-- ========================================== -->
+        <section id="tab-persona" class="tab-pane hidden space-y-4 sm:space-y-6">
+          <div>
+            <h2 class="fluid-hero font-extrabold text-white flex items-center gap-2">
+              <i data-lucide="sliders" class="w-5 h-5 text-indigo-400 shrink-0"></i>
+              <span>إعدادات الشخصية والدرع وقاعدة المعرفة</span>
+            </h2>
+            <p class="fluid-sub text-gray-400 mt-0.5">تخصيص نبرة الصوت واللهجة المحلية، الكلمات المحظورة، والردود الجاهزة للأسئلة الشائعة</p>
+          </div>
+
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6 w-full">
+            <!-- Persona Configuration -->
+            <div class="bg-darkcard border border-gray-800 rounded-xl p-3.5 sm:p-5 space-y-4">
+              <h3 class="font-bold text-xs sm:text-sm text-gray-200 border-b border-gray-800 pb-3">شخصية المساعد الذكي</h3>
+
+              <div>
+                <label class="block text-xs font-semibold text-gray-400 mb-1.5">التعليمات البرمجية الأساسية (System Prompt)</label>
+                <textarea id="persona-prompt" rows="4" class="w-full bg-gray-900 border border-gray-700 rounded-lg p-2.5 text-[16px] sm:text-xs text-white focus:outline-none focus:border-indigo-500"></textarea>
+              </div>
+
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+                <div>
+                  <label class="block text-xs font-semibold text-gray-400 mb-1.5">اللهجة المعتمدة</label>
+                  <select id="persona-dialect" class="w-full bg-gray-900 border border-gray-700 rounded-lg p-2.5 text-[16px] sm:text-xs text-white focus:outline-none focus:border-indigo-500 min-h-[44px]">
+                    <option value="Egyptian">العامية المصرية (Egyptian)</option>
+                    <option value="Saudi">اللهجة السعودية والخليجية (Gulf)</option>
+                    <option value="Levantine">اللهجة الشامية (Levantine)</option>
+                    <option value="Standard">العربية الفصحى (Modern Standard)</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-xs font-semibold text-gray-400 mb-1.5">نبرة التحدث</label>
+                  <select id="persona-tone" class="w-full bg-gray-900 border border-gray-700 rounded-lg p-2.5 text-[16px] sm:text-xs text-white focus:outline-none focus:border-indigo-500 min-h-[44px]">
+                    <option value="friendly">ودودة ومرحبة (Friendly)</option>
+                    <option value="professional">احترافية ورسمية (Professional)</option>
+                    <option value="sales">تسويقية وتشجيعية (Sales-Oriented)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label class="block text-xs font-semibold text-gray-400 mb-1.5">قائمة الكلمات المحظورة (Zero-Cost Shield)</label>
+                <input type="text" id="persona-bad-words" placeholder="افصل بين الكلمات بفاصلة (,)" class="w-full bg-gray-900 border border-gray-700 rounded-lg p-2.5 text-[16px] sm:text-xs text-white focus:outline-none focus:border-indigo-500 min-h-[44px]">
+                <span class="text-[11px] text-gray-500 mt-1 block">حجب أو حذف أي تعليق يتضمن هذه الكلمات فوراً دون استهلاك رصيد الذكاء الاصطناعي</span>
+              </div>
+
+              <div class="space-y-2 pt-2">
+                <label class="touch-target flex items-center gap-2 cursor-pointer text-xs">
+                  <input type="checkbox" id="persona-auto-delete" class="rounded bg-gray-900 text-indigo-600 w-4 h-4">
+                  <span>حذف التعليقات المسيئة والشتائم تلقائياً</span>
+                </label>
+                <label class="touch-target flex items-center gap-2 cursor-pointer text-xs">
+                  <input type="checkbox" id="persona-auto-hide" class="rounded bg-gray-900 text-indigo-600 w-4 h-4">
+                  <span>إخفاء الروابط الترويجية وحسابات التليجرام تلقائياً</span>
+                </label>
+              </div>
+
+              <button onclick="savePersonaSettings()" class="touch-target w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2 rounded-lg text-xs transition-all">
+                حفظ إعدادات الشخصية
+              </button>
+            </div>
+
+            <!-- Knowledge Base / Saved Replies -->
+            <div class="bg-darkcard border border-gray-800 rounded-xl p-3.5 sm:p-5 space-y-4">
+              <div class="flex justify-between items-center border-b border-gray-800 pb-3">
+                <h3 class="font-bold text-xs sm:text-sm text-gray-200">الردود الجاهزة والأسئلة الشائعة (FAQ)</h3>
+                <button onclick="openModal('add-reply-modal')" class="touch-target text-xs text-indigo-400 hover:text-indigo-300 font-bold flex items-center gap-1">
+                  <i data-lucide="plus" class="w-3.5 h-3.5"></i>
+                  <span>إضافة رد</span>
+                </button>
+              </div>
+
+              <div id="saved-replies-list" class="space-y-3 max-h-[460px] overflow-y-auto">
+                <!-- Dynamic Saved Replies -->
+              </div>
+            </div>
+          </div>
+        </section>
+
+      </div>
+    </main>
+  </div>
+
+  <!-- ========================================== -->
+  <!-- MODAL 1: LINK NEW ACCOUNT (BOTTOM SHEET ON MOBILE) -->
+  <!-- ========================================== -->
+  <div id="link-account-modal" class="modal-backdrop fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex flex-col justify-end md:justify-center md:items-center hidden p-0 md:p-4">
+    <div class="modal-sheet bg-darkcard border-t md:border border-gray-800 rounded-t-3xl md:rounded-2xl p-4 sm:p-6 w-full md:max-w-md space-y-4 shadow-2xl max-h-[88dvh] md:max-h-[90vh] overflow-y-auto pb-[max(1.25rem,env(safe-area-inset-bottom,0px))]">
+      <!-- Visual Touch Drag Handle (Mobile only) -->
+      <div class="w-12 h-1.5 bg-gray-700/80 rounded-full mx-auto mb-2 md:hidden"></div>
+
+      <div class="flex justify-between items-center border-b border-gray-800 pb-3">
+        <h3 class="font-bold text-white text-sm sm:text-base">ربط حساب جديد بدون واجهات رسمية (Stealth)</h3>
+        <button onclick="closeModal('link-account-modal')" class="touch-target text-gray-400 hover:text-white rounded-lg">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div class="space-y-3 text-xs">
+        <div>
+          <label class="block font-semibold text-gray-400 mb-1">المنصة المستهدفة</label>
+          <select id="link-platform" class="w-full bg-gray-900 border border-gray-700 rounded-lg p-2.5 text-[16px] sm:text-xs text-white min-h-[44px]">
+            <option value="meta">Meta Business Suite (Facebook / Instagram)</option>
+            <option value="tiktok">TikTok Studio (TikTok Web Suite)</option>
+          </select>
+        </div>
+        <div>
+          <label class="block font-semibold text-gray-400 mb-1">معرّف الحساب الداخلي (Account ID)</label>
+          <input type="text" id="link-acc-id" placeholder="مثال: meta_brand_page" class="w-full bg-gray-900 border border-gray-700 rounded-lg p-2.5 text-[16px] sm:text-xs text-white min-h-[44px]">
+        </div>
+        <div>
+          <label class="block font-semibold text-gray-400 mb-1">اسم الصفحة الظاهر</label>
+          <input type="text" id="link-page-name" placeholder="مثال: المتجر الرسمي للأزياء" class="w-full bg-gray-900 border border-gray-700 rounded-lg p-2.5 text-[16px] sm:text-xs text-white min-h-[44px]">
+        </div>
+        <div>
+          <label class="block font-semibold text-gray-400 mb-1">بروكسي سكني Residential Proxy (اختياري)</label>
+          <input type="text" id="link-proxy" placeholder="http://user:pass@ip:port" class="w-full bg-gray-900 border border-gray-700 rounded-lg p-2.5 text-[16px] sm:text-xs text-white min-h-[44px]">
+        </div>
+      </div>
+
+      <div class="pt-2 flex flex-col sm:flex-row gap-2.5">
+        <button onclick="submitLinkAccount()" class="touch-target flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2.5 rounded-lg text-xs transition-all">
+          إنشاء الحساب وتفعيل المراقبة
+        </button>
+        <button onclick="closeModal('link-account-modal')" class="touch-target px-4 bg-gray-800 hover:bg-gray-700 text-gray-300 font-bold py-2.5 rounded-lg text-xs transition-all">
+          إلغاء
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================== -->
+  <!-- MODAL 2: INDEX NEW POST (BOTTOM SHEET ON MOBILE) -->
+  <!-- ========================================== -->
+  <div id="index-post-modal" class="modal-backdrop fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex flex-col justify-end md:justify-center md:items-center hidden p-0 md:p-4">
+    <div class="modal-sheet bg-darkcard border-t md:border border-gray-800 rounded-t-3xl md:rounded-2xl p-4 sm:p-6 w-full md:max-w-lg space-y-4 shadow-2xl max-h-[88dvh] md:max-h-[90vh] overflow-y-auto pb-[max(1.25rem,env(safe-area-inset-bottom,0px))]">
+      <!-- Visual Touch Drag Handle (Mobile only) -->
+      <div class="w-12 h-1.5 bg-gray-700/80 rounded-full mx-auto mb-2 md:hidden"></div>
+
+      <div class="flex justify-between items-center border-b border-gray-800 pb-3">
+        <h3 class="font-bold text-white text-sm sm:text-base">فهرسة منشور واستخراج الذاكرة المرئية</h3>
+        <button onclick="closeModal('index-post-modal')" class="touch-target text-gray-400 hover:text-white rounded-lg">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div class="space-y-3 text-xs">
+        <div>
+          <label class="block font-semibold text-gray-400 mb-1">معرّف المنشور (Post ID)</label>
+          <input type="text" id="post-id-input" placeholder="post_1001" class="w-full bg-gray-900 border border-gray-700 rounded-lg p-2.5 text-[16px] sm:text-xs text-white min-h-[44px]">
+        </div>
+        <div>
+          <label class="block font-semibold text-gray-400 mb-1">رابط المنشور (Post URL)</label>
+          <input type="text" id="post-url-input" placeholder="https://facebook.com/posts/..." class="w-full bg-gray-900 border border-gray-700 rounded-lg p-2.5 text-[16px] sm:text-xs text-white min-h-[44px]">
+        </div>
+        <div>
+          <label class="block font-semibold text-gray-400 mb-1">كابشن المنشور (Post Caption)</label>
+          <textarea id="post-caption-input" rows="3" placeholder="اكتب كابشن المنشور المكتوب على فيسبوك/تيك توك..." class="w-full bg-gray-900 border border-gray-700 rounded-lg p-2.5 text-[16px] sm:text-xs text-white"></textarea>
+        </div>
+        <div>
+          <label class="block font-semibold text-gray-400 mb-1">صورة أو فيديو المنشور (ضغط + بصمة pHash)</label>
+          <input type="file" id="post-media-file" accept="image/*" class="w-full text-xs text-gray-400 file:mr-2 file:py-2 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-gray-800 file:text-indigo-400 hover:file:bg-gray-700 cursor-pointer min-h-[44px]">
+        </div>
+      </div>
+
+      <div class="pt-2 flex flex-col sm:flex-row gap-2.5">
+        <button onclick="submitIndexPost()" class="touch-target flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2.5 rounded-lg text-xs transition-all">
+          بدء الفهرسة والتحليل العصبي
+        </button>
+        <button onclick="closeModal('index-post-modal')" class="touch-target px-4 bg-gray-800 hover:bg-gray-700 text-gray-300 font-bold py-2.5 rounded-lg text-xs transition-all">
+          إلغاء
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================== -->
+  <!-- MODAL 3: ADD SAVED REPLY (BOTTOM SHEET ON MOBILE) -->
+  <!-- ========================================== -->
+  <div id="add-reply-modal" class="modal-backdrop fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex flex-col justify-end md:justify-center md:items-center hidden p-0 md:p-4">
+    <div class="modal-sheet bg-darkcard border-t md:border border-gray-800 rounded-t-3xl md:rounded-2xl p-4 sm:p-6 w-full md:max-w-md space-y-4 shadow-2xl max-h-[88dvh] md:max-h-[90vh] overflow-y-auto pb-[max(1.25rem,env(safe-area-inset-bottom,0px))]">
+      <!-- Visual Touch Drag Handle (Mobile only) -->
+      <div class="w-12 h-1.5 bg-gray-700/80 rounded-full mx-auto mb-2 md:hidden"></div>
+
+      <div class="flex justify-between items-center border-b border-gray-800 pb-3">
+        <h3 class="font-bold text-white text-sm sm:text-base">إضافة رد جاهز لقاعدة المعرفة</h3>
+        <button onclick="closeModal('add-reply-modal')" class="touch-target text-gray-400 hover:text-white rounded-lg">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div class="space-y-3 text-xs">
+        <div>
+          <label class="block font-semibold text-gray-400 mb-1">التصنيف (Category)</label>
+          <input type="text" id="reply-cat" placeholder="مثال: الشحن والتوصيل" class="w-full bg-gray-900 border border-gray-700 rounded-lg p-2.5 text-[16px] sm:text-xs text-white min-h-[44px]">
+        </div>
+        <div>
+          <label class="block font-semibold text-gray-400 mb-1">الكلمات المفتاحية المفعّلة (مفصولة بفاصلة)</label>
+          <input type="text" id="reply-kws" placeholder="شحن, توصيل, مصاريف الشحن, كام يوم" class="w-full bg-gray-900 border border-gray-700 rounded-lg p-2.5 text-[16px] sm:text-xs text-white min-h-[44px]">
+        </div>
+        <div>
+          <label class="block font-semibold text-gray-400 mb-1">نص الرد المعتمد</label>
+          <textarea id="reply-text" rows="3" placeholder="أهلاً بك! التوصيل متاح لجميع المحافظات خلال 48 ساعة..." class="w-full bg-gray-900 border border-gray-700 rounded-lg p-2.5 text-[16px] sm:text-xs text-white"></textarea>
+        </div>
+      </div>
+
+      <div class="pt-2 flex flex-col sm:flex-row gap-2.5">
+        <button onclick="submitAddSavedReply()" class="touch-target flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-2.5 rounded-lg text-xs transition-all">
+          حفظ الرد
+        </button>
+        <button onclick="closeModal('add-reply-modal')" class="touch-target px-4 bg-gray-800 hover:bg-gray-700 text-gray-300 font-bold py-2.5 rounded-lg text-xs transition-all">
+          إلغاء
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================== -->
+  <!-- MOBILE BOTTOM DOCK (STANDALONE PWA NAVIGATION) -->
+  <!-- ========================================== -->
+  <nav class="md:hidden fixed bottom-0 left-0 right-0 bg-gray-900/95 border-t border-gray-800 z-40 flex items-center justify-around px-2 backdrop-blur-md pb-[max(0.35rem,env(safe-area-inset-bottom,0px))] pt-1" style="height: calc(3.6rem + env(safe-area-inset-bottom, 0px));">
+    <button onclick="mobileNav('radar')" class="mob-tab touch-target flex flex-col items-center justify-center gap-1 text-indigo-400" data-tab="radar" title="الرادار المباشر">
+      <i data-lucide="radar" class="w-5 h-5"></i>
+      <span class="text-[10px] font-bold">الرادار</span>
+    </button>
+    <button onclick="mobileNav('brain')" class="mob-tab touch-target flex flex-col items-center justify-center gap-1 text-gray-400" data-tab="brain" title="فهرس المنشورات">
+      <i data-lucide="database" class="w-5 h-5"></i>
+      <span class="text-[10px] font-bold">المنشورات</span>
+    </button>
+    <button onclick="mobileNav('sandbox')" class="mob-tab touch-target flex flex-col items-center justify-center gap-1 text-gray-400" data-tab="sandbox" title="المحاكي التجريبي">
+      <i data-lucide="flask-conical" class="w-5 h-5"></i>
+      <span class="text-[10px] font-bold">المحاكي</span>
+    </button>
+    <button onclick="mobileNav('persona')" class="mob-tab touch-target flex flex-col items-center justify-center gap-1 text-gray-400" data-tab="persona" title="إعدادات الشخصية">
+      <i data-lucide="settings" class="w-5 h-5"></i>
+      <span class="text-[10px] font-bold">الإعدادات</span>
+    </button>
+  </nav>
+
+  <!-- ========================================== -->
+  <!-- JAVASCRIPT APPLICATION CORE LOGIC -->
+  <!-- ========================================== -->
+  <script>
+    let activeAccountId = null;
+    let ws = null;
+    let stats = { total: 0, replied: 0, moderated: 0, phash: 0 };
+
+    document.addEventListener("DOMContentLoaded", () => {
+      lucide.createIcons();
+      initWebSocket();
+      fetchMetrics();
+      loadAccounts();
+      setInterval(fetchMetrics, 5000);
+
+      // Handle backdrop clicks to close modals smoothly
+      document.querySelectorAll('.modal-backdrop').forEach(modal => {
+        modal.addEventListener('click', (e) => {
+          if (e.target === modal) {
+            closeModal(modal.id);
+          }
+        });
+      });
+
+      // Escape key to close modals
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+          document.querySelectorAll('.modal-backdrop:not(.hidden)').forEach(modal => {
+            closeModal(modal.id);
+          });
+        }
+      });
+    });
+
+    // ==========================================
+    // MODAL STATE MANAGEMENT
+    // ==========================================
+    function openModal(id) {
+      if (navigator.vibrate) navigator.vibrate(25);
+      const modal = document.getElementById(id);
+      if (modal) {
+        modal.classList.remove("hidden");
+        document.body.classList.add("overflow-hidden");
+      }
+    }
+
+    function closeModal(id) {
+      const modal = document.getElementById(id);
+      if (modal) {
+        modal.classList.add("hidden");
+        document.body.classList.remove("overflow-hidden");
+      }
+    }
+
+    // Helper: File to Base64
+    function fileToBase64(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const res = reader.result;
+          const base64 = res.split(',')[1];
+          resolve(base64);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    }
+
+    // ==========================================
+    // WEBSOCKET REAL-TIME RADAR
+    // ==========================================
+    function initWebSocket() {
+      const loc = window.location;
+      const wsProtocol = loc.protocol === "https:" ? "wss:" : "ws:";
+      const wsUrl = `${wsProtocol}//${loc.host}/ws/radar`;
+
+      ws = new WebSocket(wsUrl);
+
+      ws.onopen = () => {
+        const ind = document.getElementById("ws-indicator");
+        const st = document.getElementById("ws-status");
+        if (ind) ind.className = "w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0";
+        if (st) st.textContent = "متصل مباشر";
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === "RADAR_INIT") {
+            updateHardwareMetrics(data.rss_mb, data.memory_ceiling_mb);
+          } else if (data.type === "RADAR_ACTION") {
+            appendRadarRow(data);
+          } else if (data.type === "HUMAN_INTERVENTION_REQUIRED") {
+            if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 400]);
+            alert(`⚠️ تنبيه أمني: الحساب ${data.account_id} يحتاج تدخلاً بشرياً لحل تحدي أمني (Captcha / Checkpoint)`);
+          } else if (data.type === "POST_AUTONOMOUSLY_INDEXED") {
+            if (activeAccountId === data.account_id) {
+              loadPosts(activeAccountId);
+            }
+          }
+        } catch (e) {
+          console.error("WS Parse error", e);
+        }
+      };
+
+      ws.onclose = () => {
+        const ind = document.getElementById("ws-indicator");
+        const st = document.getElementById("ws-status");
+        if (ind) ind.className = "w-2.5 h-2.5 rounded-full bg-rose-500 animate-pulse shrink-0";
+        if (st) st.textContent = "انقطع الاتصال";
+        setTimeout(initWebSocket, 3000);
+      };
+    }
+
+    // ==========================================
+    // HARDWARE METRICS
+    // ==========================================
+    async function fetchMetrics() {
+      try {
+        const res = await fetch("/api/system/metrics");
+        const data = await res.json();
+        updateHardwareMetrics(data.rss_mb, data.memory_ceiling_mb);
+      } catch (e) {}
+    }
+
+    function updateHardwareMetrics(rss, ceiling) {
+      const ramText = document.getElementById("ram-text");
+      if (ramText) ramText.textContent = `${rss} MB`;
+      const pct = Math.min(100, Math.round((rss / ceiling) * 100));
+      const bar = document.getElementById("ram-progress");
+      if (bar) {
+        bar.style.width = `${pct}%`;
+        if (pct > 85) bar.className = "h-full bg-rose-500 rounded-full transition-all";
+        else if (pct > 65) bar.className = "h-full bg-amber-500 rounded-full transition-all";
+        else bar.className = "h-full bg-emerald-500 rounded-full transition-all";
+      }
+    }
+
+    // ==========================================
+    // TAB NAVIGATION
+    // ==========================================
+    function switchTab(tabId) {
+      document.querySelectorAll(".tab-pane").forEach(p => p.classList.add("hidden"));
+      const targetPane = document.getElementById(`tab-${tabId}`);
+      if (targetPane) targetPane.classList.remove("hidden");
+
+      // Update Desktop Nav Tabs
+      document.querySelectorAll(".nav-tab").forEach(t => {
+        if (t.getAttribute("data-tab") === tabId) {
+          t.className = "nav-tab touch-target w-full flex items-center justify-start gap-3 px-3 py-2.5 rounded-lg text-sm font-semibold transition-all text-indigo-400 bg-indigo-600/10";
+        } else {
+          t.className = "nav-tab touch-target w-full flex items-center justify-start gap-3 px-3 py-2.5 rounded-lg text-sm font-semibold text-gray-400 hover:text-white hover:bg-gray-800/60 transition-all";
+        }
+      });
+
+      // Update Mobile Nav Tabs
+      document.querySelectorAll('.mob-tab').forEach(b => {
+        if (b.getAttribute('data-tab') === tabId) {
+          b.className = 'mob-tab touch-target flex flex-col items-center justify-center gap-1 text-indigo-400';
+        } else {
+          b.className = 'mob-tab touch-target flex flex-col items-center justify-center gap-1 text-gray-400';
+        }
+      });
+
+      lucide.createIcons();
+    }
+
+    function mobileNav(tabId) {
+      if (navigator.vibrate) navigator.vibrate([20, 30, 20]);
+      switchTab(tabId);
+    }
+
+    // ==========================================
+    // ACCOUNTS CRUD & ADAPTIVE DOCK
+    // ==========================================
+    async function loadAccounts() {
+      try {
+        const res = await fetch("/api/accounts");
+        const accounts = await res.json();
+        const countBadge = document.getElementById("account-count");
+        if (countBadge) countBadge.textContent = accounts.length;
+
+        const list = document.getElementById("account-list");
+        const mobileList = document.getElementById("mobile-account-list");
+        if (list) list.innerHTML = "";
+        if (mobileList) mobileList.innerHTML = "";
+
+        if (accounts.length === 0) {
+          if (list) list.innerHTML = `<div class="text-xs text-gray-500 text-center py-4">لا توجد صفحات مضافة بعد</div>`;
+          if (mobileList) mobileList.innerHTML = `<span class="text-[11px] text-gray-500">لا توجد صفحات</span>`;
+          return;
+        }
+
+        accounts.forEach((acc, i) => {
+          if (i === 0 && !activeAccountId) activeAccountId = acc.id;
+          const isSelected = acc.id === activeAccountId;
+
+          // Desktop Sidebar Item
+          if (list) {
+            const div = document.createElement("div");
+            div.className = `p-3 rounded-xl border cursor-pointer transition-all ${
+              isSelected
+                ? "bg-indigo-950/40 border-indigo-500/60 shadow-lg shadow-indigo-950/50"
+                : "bg-gray-800/40 border-gray-800 hover:border-gray-700"
+            }`;
+            div.onclick = () => selectAccount(acc.id);
+
+            const statusColor = acc.session_status === "active" ? "bg-emerald-500" : "bg-rose-500";
+            div.innerHTML = `
+              <div class="flex items-center justify-between">
+                <span class="font-bold text-xs text-white truncate">${acc.page_name}</span>
+                <span class="w-2 h-2 rounded-full ${statusColor} shrink-0"></span>
+              </div>
+              <div class="flex items-center justify-between mt-1 text-[11px] text-gray-400">
+                <span class="font-mono text-gray-500">${acc.platform}</span>
+                <span class="text-indigo-400 text-[10px]">24/7 فعال</span>
+              </div>
+            `;
+            list.appendChild(div);
+          }
+
+          // Mobile Account Pill
+          if (mobileList) {
+            const pill = document.createElement("button");
+            pill.className = `touch-target text-[11px] font-bold px-3 py-1 rounded-full border transition-all shrink-0 flex items-center gap-1.5 ${
+              isSelected
+                ? "bg-indigo-600 text-white border-indigo-500 shadow-md shadow-indigo-600/30"
+                : "bg-gray-800/80 text-gray-300 border-gray-700 hover:bg-gray-700"
+            }`;
+            pill.onclick = () => selectAccount(acc.id);
+            const dotColor = acc.session_status === "active" ? "bg-emerald-400" : "bg-rose-400";
+            pill.innerHTML = `
+              <span class="w-2 h-2 rounded-full ${dotColor}"></span>
+              <span class="truncate max-w-[100px]">${acc.page_name}</span>
+            `;
+            mobileList.appendChild(pill);
+          }
+        });
+
+        if (activeAccountId) {
+          loadPosts(activeAccountId);
+          loadPersona(activeAccountId);
+          loadSavedReplies(activeAccountId);
+          loadRadarLogs(activeAccountId);
+        }
+      } catch (e) {
+        console.error("Load accounts failed", e);
+      }
+    }
+
+    function selectAccount(id) {
+      if (navigator.vibrate) navigator.vibrate(20);
+      activeAccountId = id;
+      loadAccounts();
+    }
+
+    async function submitLinkAccount() {
+      const platform = document.getElementById("link-platform").value;
+      const account_id = document.getElementById("link-acc-id").value.trim();
+      const page_name = document.getElementById("link-page-name").value.trim();
+      const proxy_url = document.getElementById("link-proxy").value.trim();
+
+      if (!account_id || !page_name) {
+        alert("يرجى ملء جميع الحقول المطلوبة");
+        return;
+      }
+
+      await fetch("/api/accounts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ account_id, platform, page_name, proxy_url })
+      });
+
+      closeModal("link-account-modal");
+      activeAccountId = account_id;
+      loadAccounts();
+    }
+
+    // ==========================================
+    // POST EXPLORER (BRAIN)
+    // ==========================================
+    async function loadPosts(accId) {
+      try {
+        const res = await fetch(`/api/accounts/${accId}/posts`);
+        const posts = await res.json();
+        const grid = document.getElementById("posts-grid");
+        const select = document.getElementById("sandbox-post-select");
+        if (grid) grid.innerHTML = "";
+        if (select) select.innerHTML = '<option value="">بدون منشور محدد (استفسار عام في الرسائل)</option>';
+
+        if (posts.length === 0) {
+          if (grid) grid.innerHTML = `<div class="col-span-full py-12 text-center text-gray-500 text-xs">لا توجد منشورات مفهرسة لهذا الحساب حتى الآن.</div>`;
+          return;
+        }
+
+        posts.forEach(p => {
+          if (select) {
+            const opt = document.createElement("option");
+            opt.value = p.external_post_id;
+            opt.textContent = `${p.external_post_id} - ${(p.caption_text || '').substring(0, 30)}...`;
+            select.appendChild(opt);
+          }
+
+          if (grid) {
+            const digest = p.visual_digest || {};
+            const card = document.createElement("div");
+            card.className = "bg-darkcard border border-gray-800 rounded-xl p-3.5 sm:p-4 flex flex-col justify-between space-y-3 min-w-0 shadow-lg";
+            card.innerHTML = `
+              <div>
+                <div class="flex items-center justify-between text-xs font-mono text-gray-400 border-b border-gray-800 pb-2 gap-2">
+                  <span class="truncate">#${p.external_post_id}</span>
+                  <span class="text-emerald-400 text-[11px] shrink-0">pHash: ${p.phash_hex ? p.phash_hex.substring(0, 8) + '...' : 'غير متوفر'}</span>
+                </div>
+                <p class="text-xs text-gray-200 font-semibold mt-2 line-clamp-2 break-words">${p.caption_text || '(بدون كابشن)'}</p>
+                <div class="mt-3 p-2.5 rounded bg-gray-900 border border-gray-800/80 text-[11px] space-y-1">
+                  <span class="text-indigo-400 font-bold block">ما رآه الذكاء الاصطناعي:</span>
+                  <p class="text-gray-300 line-clamp-3 break-words">${digest.visual_description || 'قيد المعالجة'}</p>
+                  <div class="text-gray-400 pt-1 break-words">
+                    <span class="text-amber-400 font-bold">الأسعار المستخرجة:</span>
+                    ${JSON.stringify(digest.detected_products_and_prices || [])}
+                  </div>
+                </div>
+              </div>
+              <div class="text-[10px] text-gray-500 flex justify-between items-center pt-2 border-t border-gray-800">
+                <span>آخر مزامنة: ${new Date(p.last_synced_at).toLocaleTimeString('ar-EG')}</span>
+                <span class="text-emerald-400 font-bold">0 Media Tokens</span>
+              </div>
+            `;
+            grid.appendChild(card);
+          }
+        });
+      } catch (e) {
+        console.error("Load posts failed", e);
+      }
+    }
+
+    async function submitIndexPost() {
+      if (!activeAccountId) return alert("اختر حساباً أولاً");
+      const post_id = document.getElementById("post-id-input").value.trim();
+      const post_url = document.getElementById("post-url-input").value.trim();
+      const caption = document.getElementById("post-caption-input").value.trim();
+      const fileInput = document.getElementById("post-media-file");
+
+      if (!post_id) return alert("يرجى كتابة معرّف المنشور");
+
+      let media_base64 = null;
+      if (fileInput.files.length > 0) {
+        const file = fileInput.files[0];
+        media_base64 = await fileToBase64(file);
+      }
+
+      await fetch(`/api/accounts/${activeAccountId}/posts/index`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ post_id, post_url, caption, media_base64 })
+      });
+
+      closeModal("index-post-modal");
+      alert("تم جدولة المنشور للفهرسة واستخراج البصمة المرئية.");
+      setTimeout(() => loadPosts(activeAccountId), 2000);
+    }
+
+    // ==========================================
+    // SANDBOX SIMULATOR
+    // ==========================================
+    async function runSandboxSimulation() {
+      if (!activeAccountId) return alert("اختر حساباً أولاً");
+
+      const post_id = document.getElementById("sandbox-post-select").value;
+      const sender_name = document.getElementById("sandbox-sender").value.trim();
+      const text = document.getElementById("sandbox-text").value.trim();
+      const interaction_type = document.querySelector('input[name="sandbox-type"]:checked').value;
+      const fileInput = document.getElementById("sandbox-image-file");
+
+      let image_base64 = null;
+      if (fileInput.files.length > 0) {
+        image_base64 = await fileToBase64(fileInput.files[0]);
+      }
+
+      const btn = document.getElementById("sandbox-btn");
+      btn.disabled = true;
+      btn.innerHTML = `<span class="animate-spin">⏳</span> جاري المعالجة...`;
+
+      try {
+        const res = await fetch("/api/sandbox/simulate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            account_id: activeAccountId,
+            inbound_text: text,
+            sender_name,
+            interaction_type,
+            image_base64,
+            post_id: post_id || null
+          })
+        });
+
+        const data = await res.json();
+        renderSandboxResults(data);
+      } catch (e) {
+        alert("فشلت المحاكاة: " + e.message);
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = `<i data-lucide="play" class="w-4 h-4"></i> تنفيذ المحاكاة الآن`;
+        lucide.createIcons();
+      }
+    }
+
+    function renderSandboxResults(data) {
+      document.getElementById("sandbox-empty-state").classList.add("hidden");
+      document.getElementById("sandbox-results").classList.remove("hidden");
+      document.getElementById("sandbox-metrics-bar").classList.remove("hidden");
+
+      const badge = document.getElementById("sandbox-badge");
+      badge.classList.remove("hidden");
+
+      if (data.stage === "STAGE_1_ZERO_COST_SHIELD") {
+        badge.className = "text-[10px] px-2 py-0.5 rounded font-mono font-bold bg-rose-500/20 text-rose-400 border border-rose-500/30";
+        badge.textContent = "🛡️ ZERO-COST SHIELD";
+      } else if (data.matched_by_phash) {
+        badge.className = "text-[10px] px-2 py-0.5 rounded font-mono font-bold bg-cyan-500/20 text-cyan-400 border border-cyan-500/30";
+        badge.textContent = "👁️ pHash Deterministic Match (0 Tokens)";
+      } else {
+        badge.className = "text-[10px] px-2 py-0.5 rounded font-mono font-bold bg-indigo-500/20 text-indigo-400 border border-indigo-500/30";
+        badge.textContent = "🧠 GEMINI 2.5 FLASH INFERENCE";
+      }
+
+      document.getElementById("res-context").textContent = data.understood_context || data.moderation_reason || "تم كشف انتهاك عبر الدرع المحلي";
+      document.getElementById("res-decision").textContent = `${data.decision} (ثقة: ${Math.round((data.confidence || 1) * 100)}%)`;
+
+      const pubBox = document.getElementById("box-public-reply");
+      if (data.public_comment_reply) {
+        pubBox.classList.remove("hidden");
+        document.getElementById("res-public-reply").textContent = data.public_comment_reply;
+      } else {
+        pubBox.classList.add("hidden");
+      }
+
+      const dmBox = document.getElementById("box-private-dm");
+      if (data.private_dm_reply) {
+        dmBox.classList.remove("hidden");
+        document.getElementById("res-private-dm").textContent = data.private_dm_reply;
+      } else {
+        dmBox.classList.add("hidden");
+      }
+
+      document.getElementById("res-raw-json").textContent = JSON.stringify(data, null, 2);
+      document.getElementById("res-stage").textContent = data.stage;
+      document.getElementById("res-latency").textContent = `زمن الاستجابة: ${data.latency_ms} ms`;
+    }
+
+    // ==========================================
+    // PERSONA & SAVED REPLIES
+    // ==========================================
+    async function loadPersona(accId) {
+      try {
+        const res = await fetch(`/api/accounts/${accId}/persona`);
+        const p = await res.json();
+        document.getElementById("persona-prompt").value = p.system_prompt || "";
+        document.getElementById("persona-dialect").value = p.dialect || "Egyptian";
+        document.getElementById("persona-tone").value = p.tone_of_voice || "friendly";
+        document.getElementById("persona-bad-words").value = (p.bad_words_list || []).join(", ");
+        document.getElementById("persona-auto-delete").checked = !!p.auto_delete_toxic;
+        document.getElementById("persona-auto-hide").checked = !!p.auto_hide_spam;
+      } catch (e) {}
+    }
+
+    async function savePersonaSettings() {
+      if (!activeAccountId) return;
+      const prompt = document.getElementById("persona-prompt").value;
+      const dialect = document.getElementById("persona-dialect").value;
+      const tone = document.getElementById("persona-tone").value;
+      const badWordsRaw = document.getElementById("persona-bad-words").value;
+      const bad_words_list = badWordsRaw.split(",").map(w => w.trim()).filter(Boolean);
+      const auto_delete_toxic = document.getElementById("persona-auto-delete").checked;
+      const auto_hide_spam = document.getElementById("persona-auto-hide").checked;
+
+      await fetch(`/api/accounts/${activeAccountId}/persona`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          system_prompt: prompt,
+          dialect,
+          tone_of_voice: tone,
+          bad_words_list,
+          auto_delete_toxic,
+          auto_hide_spam
+        })
+      });
+
+      alert("تم حفظ إعدادات الشخصية والدرع الواقي بنجاح!");
+    }
+
+    async function loadSavedReplies(accId) {
+      try {
+        const res = await fetch(`/api/accounts/${accId}/saved-replies`);
+        const replies = await res.json();
+        const list = document.getElementById("saved-replies-list");
+        if (!list) return;
+        list.innerHTML = "";
+
+        if (replies.length === 0) {
+          list.innerHTML = `<div class="text-xs text-gray-500 text-center py-4">لا توجد ردود جاهزة مضافة</div>`;
+          return;
+        }
+
+        replies.forEach(r => {
+          const div = document.createElement("div");
+          div.className = "p-3 rounded-lg bg-gray-900 border border-gray-800 space-y-1 text-xs min-w-0";
+          div.innerHTML = `
+            <div class="flex justify-between items-center text-gray-400 font-semibold gap-2">
+              <span class="text-indigo-400 truncate">${r.category}</span>
+              <span class="text-[10px] text-gray-500 shrink-0">مرات الاستخدام: ${r.usage_count}</span>
+            </div>
+            <p class="text-gray-200 font-medium break-words">${r.reply_text}</p>
+            <div class="text-[10px] text-gray-500 break-words">الكلمات: ${r.trigger_keywords.join(", ")}</div>
+          `;
+          list.appendChild(div);
+        });
+      } catch (e) {}
+    }
+
+    async function submitAddSavedReply() {
+      if (!activeAccountId) return alert("اختر حساباً أولاً");
+      const category = document.getElementById("reply-cat").value.trim();
+      const kwsRaw = document.getElementById("reply-kws").value.trim();
+      const trigger_keywords = kwsRaw.split(",").map(k => k.trim()).filter(Boolean);
+      const reply_text = document.getElementById("reply-text").value.trim();
+
+      if (!category || !reply_text) return alert("يرجى ملء جميع الحقول");
+
+      await fetch(`/api/accounts/${activeAccountId}/saved-replies`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ category, trigger_keywords, reply_text })
+      });
+
+      closeModal("add-reply-modal");
+      loadSavedReplies(activeAccountId);
+    }
+
+    // ==========================================
+    // RADAR FEED LOGS (DUAL RENDERING: TABLE + MOBILE CARDS)
+    // ==========================================
+    async function loadRadarLogs(accId = activeAccountId) {
+      try {
+        const url = accId ? `/api/accounts/${accId}/logs?limit=25` : `/api/accounts/all/logs?limit=25`;
+        const res = await fetch(url);
+        const logs = await res.json();
+        const tbody = document.getElementById("radar-events-table");
+        const cardsContainer = document.getElementById("radar-events-cards");
+
+        if (tbody) tbody.innerHTML = "";
+        if (cardsContainer) cardsContainer.innerHTML = "";
+
+        if (logs.length === 0) {
+          if (tbody) tbody.innerHTML = `<tr><td colspan="7" class="text-center py-8 text-gray-500">لا توجد تفاعلات مسجلة حتى الآن</td></tr>`;
+          if (cardsContainer) cardsContainer.innerHTML = `<div class="text-center py-8 text-gray-500 text-xs">لا توجد تفاعلات مسجلة حتى الآن</div>`;
+          return;
+        }
+
+        stats.total = logs.length;
+        stats.replied = logs.filter(l => l.agent_action === "REPLIED").length;
+        stats.moderated = logs.filter(l => l.agent_action === "DELETED" || l.agent_action === "HIDDEN").length;
+        updateStatCards();
+
+        logs.forEach(log => {
+          appendLogRow(tbody, cardsContainer, log);
+        });
+      } catch (e) {}
+    }
+
+    function appendRadarRow(event) {
+      stats.total++;
+      if (event.action === "REPLIED") stats.replied++;
+      if (event.action === "DELETED" || event.action === "HIDDEN") stats.moderated++;
+      if (event.matched_by_phash) stats.phash++;
+      updateStatCards();
+
+      const tbody = document.getElementById("radar-events-table");
+      const cardsContainer = document.getElementById("radar-events-cards");
+      const badgeColor = event.action === "REPLIED" ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/20" : "text-rose-400 bg-rose-500/10 border-rose-500/20";
+      const timeStr = new Date().toLocaleTimeString('ar-EG');
+
+      // 1. Desktop Table Row
+      if (tbody) {
+        const tr = document.createElement("tr");
+        tr.className = "hover:bg-gray-800/30 transition-colors animate-pulse";
+        tr.innerHTML = `
+          <td class="p-3 text-gray-500 font-mono">${timeStr}</td>
+          <td class="p-3 text-white font-bold">${event.sender || 'عميل'}</td>
+          <td class="p-3 text-gray-400">فوري</td>
+          <td class="p-3 text-gray-300 max-w-xs truncate">${event.inbound_text || '(مرفق وسائط)'}</td>
+          <td class="p-3"><span class="px-2 py-0.5 rounded font-bold border ${badgeColor}">${event.action}</span></td>
+          <td class="p-3 text-gray-200 max-w-xs truncate">${event.response || event.reason || ''}</td>
+          <td class="p-3 text-indigo-400 font-mono">${event.latency_ms || 120} ms</td>
+        `;
+        tbody.prepend(tr);
+      }
+
+      // 2. Mobile Responsive Card
+      if (cardsContainer) {
+        const card = document.createElement("div");
+        card.className = "p-3 bg-gray-900/80 rounded-xl border border-gray-800 space-y-2 animate-pulse min-w-0";
+        card.innerHTML = `
+          <div class="flex items-center justify-between gap-2">
+            <span class="font-bold text-white text-xs truncate">${event.sender || 'عميل'}</span>
+            <span class="px-2 py-0.5 rounded text-[10px] font-bold border ${badgeColor} shrink-0">${event.action}</span>
+          </div>
+          <p class="text-xs text-gray-300 break-words">${event.inbound_text || '(مرفق وسائط)'}</p>
+          ${event.response || event.reason ? `<div class="p-2 bg-gray-950/70 rounded border border-gray-800/60 text-xs text-gray-200 break-words">${event.response || event.reason}</div>` : ''}
+          <div class="flex justify-between items-center text-[10px] text-gray-500 font-mono pt-1 border-t border-gray-800/50">
+            <span>${timeStr}</span>
+            <span class="text-indigo-400">${event.latency_ms || 120} ms</span>
+          </div>
+        `;
+        cardsContainer.prepend(card);
+      }
+    }
+
+    function appendLogRow(tbody, cardsContainer, log) {
+      const badgeColor = log.agent_action === "REPLIED" ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/20" : "text-rose-400 bg-rose-500/10 border-rose-500/20";
+      const timeStr = new Date(log.timestamp).toLocaleTimeString('ar-EG');
+
+      // 1. Desktop Table Row
+      if (tbody) {
+        const tr = document.createElement("tr");
+        tr.className = "hover:bg-gray-800/30 transition-colors";
+        tr.innerHTML = `
+          <td class="p-3 text-gray-500 font-mono">${timeStr}</td>
+          <td class="p-3 text-white font-bold">${log.sender_name || 'عميل'}</td>
+          <td class="p-3 text-gray-400">${log.interaction_type}</td>
+          <td class="p-3 text-gray-300 max-w-xs truncate">${log.inbound_text || '(وسائط)'}</td>
+          <td class="p-3"><span class="px-2 py-0.5 rounded font-bold border ${badgeColor}">${log.agent_action}</span></td>
+          <td class="p-3 text-gray-200 max-w-xs truncate">${log.agent_response || ''}</td>
+          <td class="p-3 text-indigo-400 font-mono">${Math.round(log.confidence * 100)}%</td>
+        `;
+        tbody.appendChild(tr);
+      }
+
+      // 2. Mobile Card
+      if (cardsContainer) {
+        const card = document.createElement("div");
+        card.className = "p-3 bg-gray-900/60 rounded-xl border border-gray-800/80 space-y-2 min-w-0";
+        card.innerHTML = `
+          <div class="flex items-center justify-between gap-2">
+            <span class="font-bold text-white text-xs truncate">${log.sender_name || 'عميل'}</span>
+            <span class="px-2 py-0.5 rounded text-[10px] font-bold border ${badgeColor} shrink-0">${log.agent_action}</span>
+          </div>
+          <p class="text-xs text-gray-300 break-words">${log.inbound_text || '(وسائط)'}</p>
+          ${log.agent_response ? `<div class="p-2 bg-gray-950/70 rounded border border-gray-800/60 text-xs text-gray-200 break-words">${log.agent_response}</div>` : ''}
+          <div class="flex justify-between items-center text-[10px] text-gray-500 font-mono pt-1 border-t border-gray-800/50">
+            <span>${timeStr}</span>
+            <span class="text-indigo-400">ثقة: ${Math.round(log.confidence * 100)}%</span>
+          </div>
+        `;
+        cardsContainer.appendChild(card);
+      }
+    }
+
+    function updateStatCards() {
+      const t = document.getElementById("stat-total");
+      const r = document.getElementById("stat-replied");
+      const m = document.getElementById("stat-moderated");
+      const p = document.getElementById("stat-phash");
+      if (t) t.textContent = stats.total;
+      if (r) r.textContent = stats.replied;
+      if (m) m.textContent = stats.moderated;
+      if (p) p.textContent = stats.phash;
+    }
+
+    // ==========================================
+    // PWA & MOBILE WEB PUSH INTEGRATION
+    // ==========================================
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js').then((reg) => {
+          checkPushSubscription(reg);
+        }).catch((err) => {
+          console.warn('ServiceWorker registration error:', err);
+        });
+      });
+    }
+
+    async function checkPushSubscription(reg) {
+      if (!reg || !reg.pushManager) return;
+      const sub = await reg.pushManager.getSubscription();
+      const btnText = document.getElementById("push-btn-text");
+      if (sub && btnText) {
+        btnText.textContent = "الإشعارات مفعلة ✓";
+      }
+    }
+
+    async function togglePushNotifications() {
+      if (navigator.vibrate) navigator.vibrate(40);
+      if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+        alert("المتصفح الحالي لا يدعم إشعارات الويب المباشرة (Web Push).");
+        return;
+      }
+
+      try {
+        const reg = await navigator.serviceWorker.ready;
+        let sub = await reg.pushManager.getSubscription();
+        if (sub) {
+          await fetch('/api/push/test', { method: 'POST' });
+          alert("تم إرسال إشعار تجريبي لشاشة القفل بنجاح!");
+          return;
+        }
+
+        const keyRes = await fetch('/api/push/public-key');
+        const keyData = await keyRes.json();
+        const convertedKey = urlBase64ToUint8Array(keyData.public_key);
+
+        sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: convertedKey
+        });
+
+        await fetch('/api/push/subscribe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(sub)
+        });
+
+        const btnText = document.getElementById("push-btn-text");
+        if (btnText) btnText.textContent = "الإشعارات مفعلة ✓";
+        alert("تم تفعيل إشعارات الهاتف بنجاح! ستصلك تنبيهات شاشة القفل فوراً عند حدوث أي تدخل بشري.");
+      } catch (err) {
+        console.error("Push subscription failed", err);
+        alert("تعذر تفعيل الإشعارات: " + err.message);
+      }
+    }
+
+    function urlBase64ToUint8Array(base64String) {
+      const padding = '='.repeat((4 - base64String.length % 4) % 4);
+      const base64 = (base64String + padding).replace(/\-/g, '+').replace(/_/g, '/');
+      const rawData = window.atob(base64);
+      const outputArray = new Uint8Array(rawData.length);
+      for (let i = 0; i < rawData.length; ++i) {
+        outputArray[i] = rawData.charCodeAt(i);
+      }
+      return outputArray;
+    }
+
+    // ==========================================
+    // PAGE ASSOCIATION & SCOPE ORACLE
+    // ==========================================
+    async function verifyActivePageScopes() {
+      if (navigator.vibrate) navigator.vibrate(30);
+      if (!activeAccountId) return alert("اختر صفحة أولاً");
+      const indicator = document.getElementById("oracle-indicator");
+      const text = document.getElementById("oracle-status-text");
+
+      if (text) text.textContent = "جاري الفحص...";
+      if (indicator) indicator.className = "w-2.5 h-2.5 rounded-full bg-amber-400 animate-spin shrink-0";
+
+      try {
+        const res = await fetch(`/api/accounts/${activeAccountId}/verify-connection`, { method: 'POST' });
+        const data = await res.json();
+
+        if (data.session_valid && data.health_status === "ACTIVE") {
+          if (indicator) indicator.className = "w-2.5 h-2.5 rounded-full bg-emerald-400 shrink-0";
+          if (text) text.textContent = `مرتبط: ${data.page_name} ✓`;
+          alert(`✓ تم التحقق بنجاح من الارتباط المباشر بالصفحة!\nالمعرف: ${data.page_id}\nالصلاحيات: الرد على التعليقات، إرسال الرسائل (مفعلة 100%)`);
+        } else {
+          if (indicator) indicator.className = "w-2.5 h-2.5 rounded-full bg-rose-400 shrink-0";
+          if (text) text.textContent = `تدخل مطلوب (${data.health_status})`;
+          alert(`⚠️ تنبيه: الحساب غير نشط حالياً أو يحتاج لتسجيل الدخول مجدداً.\nالسبب: ${JSON.stringify(data.details)}`);
+        }
+      } catch (e) {
+        if (indicator) indicator.className = "w-2.5 h-2.5 rounded-full bg-rose-400 shrink-0";
+        if (text) text.textContent = "خطأ اتصال";
+      }
+    }
+  </script>
+</body>
+</html>
