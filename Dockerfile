@@ -1,6 +1,7 @@
 FROM python:3.11-slim-bookworm
 
 ENV PYTHONUNBUFFERED=1 \
+    PYTHONIOENCODING=utf-8 \
     DEBIAN_FRONTEND=noninteractive \
     PORT=10000 \
     IS_CLOUD_DEPLOYMENT=true

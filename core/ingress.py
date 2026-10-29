@@ -101,18 +101,24 @@ class IngressManager:
 
     def print_mobile_pairing_banner(self) -> None:
         """Render a terminal banner with pairing instructions and scannable QR code."""
-        url = self.public_url or self.local_url
-        qr_ascii = generate_terminal_qr(url)
+        try:
+            url = self.public_url or self.local_url
+            qr_ascii = generate_terminal_qr(url)
 
-        print("\n" + "═" * 68)
-        print("📱 SOVEREIGN MOBILE CONTROL PLANE — PAIRING GATEWAY")
-        print("═" * 68)
-        print(f"  • Target Gateway URL: {url}")
-        print("  • Instructions for Android: Scan QR -> Chrome -> 'Install app' / 'Add to Home'")
-        print("  • Instructions for iPhone:  Scan QR -> Safari -> Share -> 'Add to Home Screen'")
-        print("═" * 68)
-        print(qr_ascii)
-        print("═" * 68 + "\n")
+            print("\n" + "=" * 68)
+            print("[MOBILE CONTROL PLANE - PAIRING GATEWAY]")
+            print("=" * 68)
+            print(f"  * Target Gateway URL: {url}")
+            print("  * Instructions for Android: Scan QR -> Chrome -> 'Install app' / 'Add to Home'")
+            print("  * Instructions for iPhone:  Scan QR -> Safari -> Share -> 'Add to Home Screen'")
+            print("=" * 68)
+            try:
+                print(qr_ascii)
+            except Exception:
+                pass
+            print("=" * 68 + "\n")
+        except Exception as e:
+            logger.info(f"Mobile pairing banner bypassed: {e}")
 
     def stop(self) -> None:
         """Terminate active tunnel process if running."""
