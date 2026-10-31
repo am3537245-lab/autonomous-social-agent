@@ -139,6 +139,11 @@ class AutonomousWorker:
 
     async def _handle_inbound_interaction(self, account_id: str, payload: Dict[str, Any]) -> None:
         """Execute the 3-Stage Decision & Action pipeline for an incoming comment or DM."""
+        account = self.storage.get_account(account_id)
+        if not account or account.get("session_status") in ("paused", "disconnected"):
+            logger.info(f"Skipping interaction on {account_id}: status={account.get('session_status') if account else 'deleted'}")
+            return
+
         external_event_id = payload.get("event_id", f"evt_{int(time.time()*1000)}")
         interaction_type = payload.get("interaction_type", "comment")
         inbound_text = payload.get("text", "")

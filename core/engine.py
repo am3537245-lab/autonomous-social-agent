@@ -5,10 +5,12 @@ Memory Governance (< 1.0 GB RAM), and Multi-Tenant Isolation.
 
 import asyncio
 import base64
+import hashlib
 import json
 import logging
 import os
 import random
+import re
 from typing import Any, Callable, Coroutine, Dict, List, Optional
 from cryptography.fernet import Fernet
 
@@ -16,6 +18,41 @@ logger = logging.getLogger("core.engine")
 
 DEFAULT_STORAGE_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "storage_states")
 KEY_PATH = os.path.join(DEFAULT_STORAGE_DIR, "master.key")
+
+
+def get_tenant_storage_path(account_id: str) -> str:
+    """Return deterministic, safe filesystem path for an account's encrypted session vault."""
+    legacy_file = os.path.join(DEFAULT_STORAGE_DIR, f"{account_id}.enc")
+    if os.path.exists(legacy_file):
+        return legacy_file
+
+    clean = re.sub(r"[^a-zA-Z0-9_\-]", "_", account_id)
+    if len(clean) > 48 or clean != account_id:
+        h = hashlib.sha256(account_id.encode("utf-8")).hexdigest()[:12]
+        clean = f"{clean[:32]}_{h}"
+    return os.path.join(DEFAULT_STORAGE_DIR, f"{clean}.enc")
+
+
+def generate_tenant_fingerprint(account_id: str, platform: str) -> Dict[str, Any]:
+    """Generate deterministic, isolated browser fingerprints per tenant to prevent cross-account linking."""
+    seed = int(hashlib.md5(account_id.encode("utf-8")).hexdigest()[:8], 16)
+    rng = random.Random(seed)
+    resolutions = [
+        {"width": 1920, "height": 1080},
+        {"width": 1440, "height": 900},
+        {"width": 1536, "height": 864},
+        {"width": 1366, "height": 768},
+    ]
+    chosen_res = rng.choice(resolutions)
+    chrome_versions = ["124.0.6367.207", "125.0.6422.141", "126.0.6478.127"]
+    version = rng.choice(chrome_versions)
+    return {
+        "userAgent": f"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/{version} Safari/537.36",
+        "viewport": chosen_res,
+        "locale": "ar-EG" if "eg" in account_id.lower() else "ar-SA",
+        "timezoneId": "Africa/Cairo" if "eg" in account_id.lower() else "Asia/Riyadh",
+        "webglVendor": f"Google Inc. (NVIDIA GeForce RTX {rng.choice(['3060', '3070', '4060', '4070'])})",
+    }
 
 
 def _get_or_create_cipher() -> Fernet:
@@ -109,17 +146,17 @@ class TenantContext:
         self,
         account_id: str,
         platform: str,
-        fingerprint: Dict[str, Any],
+        fingerprint: Optional[Dict[str, Any]] = None,
         proxy_url: str = "",
     ) -> None:
         self.account_id = account_id
         self.platform = platform
-        self.fingerprint = fingerprint
+        self.fingerprint = fingerprint or generate_tenant_fingerprint(account_id, platform)
         self.proxy_url = proxy_url
         self.browser_context: Any = None
         self.active_page: Any = None
         self.is_monitoring: bool = False
-        self.storage_file = os.path.join(DEFAULT_STORAGE_DIR, f"{account_id}.enc")
+        self.storage_file = get_tenant_storage_path(account_id)
 
     def has_saved_session(self) -> bool:
         return os.path.exists(self.storage_file)
@@ -201,12 +238,7 @@ class StealthBrowserManager:
         proxy_url: str = "",
     ) -> TenantContext:
         """Create an isolated, stealth BrowserContext for a specific tenant."""
-        fp = fingerprint or {
-            "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            "viewport": {"width": 1440, "height": 900},
-            "locale": "ar-EG",
-            "timezoneId": "Africa/Cairo",
-        }
+        fp = fingerprint or generate_tenant_fingerprint(account_id, platform)
 
         tenant = TenantContext(account_id, platform, fp, proxy_url)
         self.contexts[account_id] = tenant
@@ -313,6 +345,19 @@ class StealthBrowserManager:
             logger.warning(f"Security challenge triggered on {tenant.account_id}: {current_url}")
             if self.on_challenge_callback:
                 await self.on_challenge_callback(tenant.account_id, current_url)
+
+    async def close_tenant_context(self, account_id: str) -> None:
+        """Safely terminate and dispose of an individual tenant's BrowserContext and DOM pages."""
+        tenant = self.contexts.pop(account_id, None)
+        if tenant:
+            try:
+                if tenant.active_page and not tenant.active_page.is_closed():
+                    await tenant.active_page.close()
+                if tenant.browser_context:
+                    await tenant.browser_context.close()
+                logger.info(f"Isolated BrowserContext closed for tenant {account_id}")
+            except Exception as e:
+                logger.warning(f"Error closing context for tenant {account_id}: {e}")
 
     async def save_tenant_session(self, account_id: str) -> None:
         """Capture and encrypt current storage state."""

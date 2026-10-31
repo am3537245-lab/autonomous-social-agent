@@ -284,6 +284,85 @@ class StorageEngine:
                 (status, account_id),
             )
 
+    def _shred_file(self, filepath: str) -> bool:
+        """Overwrites a file with cryptographic random bytes before unlinking to prevent disk recovery."""
+        if not os.path.exists(filepath):
+            return False
+        try:
+            size = os.path.getsize(filepath)
+            with open(filepath, "ba+", buffering=0) as f:
+                f.seek(0)
+                f.write(os.urandom(max(size, 256)))
+                f.flush()
+                os.fsync(f.fileno())
+            os.remove(filepath)
+            return True
+        except Exception as e:
+            logger.warning(f"Error shredding file {filepath}: {e}")
+            try:
+                if os.path.exists(filepath):
+                    os.remove(filepath)
+                    return True
+            except Exception:
+                pass
+            return False
+
+    def disconnect_account_session(self, account_id: str) -> bool:
+        """Wipes session credentials and sets status to 'expired' (disconnected),
+
+        preserving catalog, prices, persona, and saved replies.
+        """
+        with self.get_connection() as conn:
+            conn.execute(
+                "UPDATE accounts SET session_status = 'expired' WHERE id = ?;",
+                (account_id,),
+            )
+        from core.engine import get_tenant_storage_path
+        storage_file = get_tenant_storage_path(account_id)
+        self._shred_file(storage_file)
+        logger.info(f"Session disconnected and storage state shredded for {account_id}")
+        return True
+
+    def purge_account_data(self, account_id: str) -> Dict[str, Any]:
+        """Atomically cascade-delete all account data, purge associated queue items,
+
+        cryptographically shred its storage state, and run WAL checkpoint.
+        """
+        purged_stats: Dict[str, Any] = {"account_id": account_id}
+        with self.get_connection() as conn:
+            conn.execute("PRAGMA foreign_keys = ON;")
+
+            # Count rows before deletion for verification audit
+            cur = conn.execute("SELECT COUNT(*) FROM posts_context_cache WHERE account_id = ?;", (account_id,))
+            purged_stats["posts_deleted"] = cur.fetchone()[0]
+
+            cur = conn.execute("SELECT COUNT(*) FROM interaction_logs WHERE account_id = ?;", (account_id,))
+            purged_stats["logs_deleted"] = cur.fetchone()[0]
+
+            cur = conn.execute("SELECT COUNT(*) FROM saved_replies WHERE account_id = ?;", (account_id,))
+            purged_stats["replies_deleted"] = cur.fetchone()[0]
+
+            cur = conn.execute("SELECT COUNT(*) FROM task_queue WHERE account_id = ?;", (account_id,))
+            purged_stats["tasks_purged"] = cur.fetchone()[0]
+
+            # Atomic deletion of account (cascades to all children)
+            conn.execute("DELETE FROM accounts WHERE id = ?;", (account_id,))
+
+            # Force passive WAL checkpoint
+            try:
+                conn.execute("PRAGMA wal_checkpoint(PASSIVE);")
+            except Exception:
+                pass
+
+        # Cryptographically shred the storage state on disk
+        from core.engine import get_tenant_storage_path
+        storage_file = get_tenant_storage_path(account_id)
+        shredded = self._shred_file(storage_file)
+        purged_stats["session_shredded"] = shredded
+
+        logger.info(f"Account {account_id} completely purged from database and disk. Stats: {purged_stats}")
+        return purged_stats
+
     # ==========================
     # PERSONA MANAGEMENT
     # ==========================

@@ -152,6 +152,16 @@ class AccountCreateRequest(BaseModel):
     proxy_url: Optional[str] = ""
 
 
+class AccountStatusUpdateRequest(BaseModel):
+    status: str = Field(..., description="Target status: 'active', 'paused', or 'disconnected'")
+
+
+class AccountSessionImportRequest(BaseModel):
+    cookies: Optional[List[Dict[str, Any]]] = None
+    raw_cookies_str: Optional[str] = None
+    storage_state_json: Optional[Dict[str, Any]] = None
+
+
 class PersonaUpdateRequest(BaseModel):
     system_prompt: Optional[str] = None
     tone_of_voice: Optional[str] = None
@@ -202,6 +212,104 @@ def create_account(req: AccountCreateRequest) -> Dict[str, Any]:
         proxy_url=req.proxy_url or "",
     )
     return acc
+
+
+@app.post("/api/accounts/{account_id}/disconnect")
+async def disconnect_account(account_id: str) -> Dict[str, Any]:
+    acc = storage.get_account(account_id)
+    if not acc:
+        raise HTTPException(status_code=404, detail="Account not found")
+    await browser_manager.close_tenant_context(account_id)
+    storage.disconnect_account_session(account_id)
+    await broadcast_radar_event({
+        "type": "ACCOUNT_UPDATED",
+        "account_id": account_id,
+        "session_status": "disconnected",
+    })
+    return {"status": "disconnected", "account_id": account_id}
+
+
+@app.delete("/api/accounts/{account_id}")
+async def delete_account(account_id: str) -> Dict[str, Any]:
+    acc = storage.get_account(account_id)
+    if not acc:
+        raise HTTPException(status_code=404, detail="Account not found")
+    await browser_manager.close_tenant_context(account_id)
+    purged_stats = storage.purge_account_data(account_id)
+    await broadcast_radar_event({
+        "type": "ACCOUNT_DELETED",
+        "account_id": account_id,
+    })
+    return {"status": "deleted", "account_id": account_id, "purged": purged_stats}
+
+
+@app.post("/api/accounts/{account_id}/status")
+async def update_account_status_route(account_id: str, req: AccountStatusUpdateRequest) -> Dict[str, Any]:
+    acc = storage.get_account(account_id)
+    if not acc:
+        raise HTTPException(status_code=404, detail="Account not found")
+    valid_statuses = ("active", "paused", "expired", "disconnected", "needs_challenge")
+    if req.status not in valid_statuses:
+        raise HTTPException(status_code=400, detail="Invalid status. Must be 'active' or 'paused'.")
+    db_status = "expired" if req.status == "disconnected" else req.status
+    storage.update_account_status(account_id, db_status)
+    await broadcast_radar_event({
+        "type": "ACCOUNT_UPDATED",
+        "account_id": account_id,
+        "session_status": req.status,
+    })
+    return {"status": "success", "account_id": account_id, "session_status": req.status}
+
+
+@app.post("/api/accounts/{account_id}/session")
+async def import_account_session(account_id: str, req: AccountSessionImportRequest) -> Dict[str, Any]:
+    acc = storage.get_account(account_id)
+    if not acc:
+        raise HTTPException(status_code=404, detail="Account not found")
+
+    state: Dict[str, Any] = {"cookies": [], "origins": []}
+
+    if req.storage_state_json and isinstance(req.storage_state_json, dict):
+        state = req.storage_state_json
+    elif req.cookies:
+        state["cookies"] = req.cookies
+    elif req.raw_cookies_str:
+        cookie_list = []
+        domain = ".facebook.com" if acc.get("platform") == "meta" else ".tiktok.com"
+        for item in req.raw_cookies_str.split(";"):
+            item = item.strip()
+            if "=" in item:
+                k, v = item.split("=", 1)
+                cookie_list.append({
+                    "name": k.strip(),
+                    "value": v.strip(),
+                    "domain": domain,
+                    "path": "/",
+                    "httpOnly": False,
+                    "secure": True,
+                    "sameSite": "Lax",
+                })
+        state["cookies"] = cookie_list
+
+    if not state.get("cookies"):
+        raise HTTPException(status_code=400, detail="No valid cookies found in request payload.")
+
+    from core.engine import TenantContext
+    tenant = TenantContext(account_id, acc.get("platform", "meta"), {})
+    tenant.save_encrypted_state(state)
+    storage.update_account_status(account_id, "active")
+
+    await broadcast_radar_event({
+        "type": "ACCOUNT_UPDATED",
+        "account_id": account_id,
+        "session_status": "active",
+    })
+
+    return {
+        "status": "session_imported",
+        "account_id": account_id,
+        "cookies_count": len(state.get("cookies", [])),
+    }
 
 
 @app.get("/api/accounts/{account_id}/persona")

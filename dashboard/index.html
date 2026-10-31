@@ -160,6 +160,12 @@
           <span id="oracle-status-text" class="text-emerald-300 font-bold truncate max-w-[120px]">فحص الصفحة</span>
         </button>
 
+        <!-- Account Settings / Management Pill -->
+        <button onclick="openManageModal(activeAccountId)" title="إدارة وحذف وفصل الصفحة المحددة" class="touch-target hidden sm:flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg bg-gray-800/70 border border-gray-700/60 hover:border-indigo-500/50 text-gray-300 hover:text-white transition-all">
+          <i data-lucide="sliders" class="w-3.5 h-3.5 text-indigo-400"></i>
+          <span class="text-xs font-semibold">إدارة الصفحة</span>
+        </button>
+
         <!-- Chrome / Edge PWA Install Trigger -->
         <button id="pwa-install-btn" onclick="triggerPwaInstall()" class="touch-target flex items-center gap-1.5 text-xs bg-emerald-950/40 hover:bg-emerald-900/50 text-emerald-300 px-2.5 sm:px-3 py-1.5 rounded-lg border border-emerald-500/40 transition-all shadow-sm" title="تثبيت التطبيق على متصفح كروم">
           <i data-lucide="download" class="w-4 h-4 text-emerald-400 shrink-0"></i>
@@ -238,6 +244,10 @@
           <button onclick="openModal('link-account-modal')" class="touch-target shrink-0 flex items-center gap-1 text-[11px] text-indigo-400 bg-indigo-950/40 border border-indigo-800/50 px-2.5 py-1 rounded-full">
             <i data-lucide="plus" class="w-3.5 h-3.5"></i>
             <span>إضافة</span>
+          </button>
+          <button onclick="openManageModal(activeAccountId)" class="touch-target shrink-0 flex items-center gap-1 text-[11px] text-amber-300 bg-amber-950/40 border border-amber-800/50 px-2.5 py-1 rounded-full">
+            <i data-lucide="sliders" class="w-3 h-3"></i>
+            <span>إدارة</span>
           </button>
         </div>
 
@@ -592,6 +602,10 @@
           <label class="block font-semibold text-gray-400 mb-1">بروكسي سكني Residential Proxy (اختياري)</label>
           <input type="text" id="link-proxy" placeholder="http://user:pass@ip:port" class="w-full bg-gray-900 border border-gray-700 rounded-lg p-2.5 text-[16px] sm:text-xs text-white min-h-[44px]">
         </div>
+        <div>
+          <label class="block font-semibold text-gray-400 mb-1">كوكيز الجلسة المصدرة من المتصفح (اختياري لتفعيل الربط فوراً)</label>
+          <textarea id="link-cookies" rows="2" placeholder="الصق هنا كوكيز الجلسة من Cookie-Editor بصيغة JSON أو c_user=...; xs=..." class="w-full bg-gray-900 border border-gray-700 rounded-lg p-2 text-[16px] sm:text-xs text-white"></textarea>
+        </div>
       </div>
 
       <div class="pt-2 flex flex-col sm:flex-row gap-2.5">
@@ -692,6 +706,73 @@
   </div>
 
   <!-- ========================================== -->
+  <!-- MODAL 4: MANAGE ACCOUNT LIFECYCLE (BOTTOM SHEET ON MOBILE) -->
+  <!-- ========================================== -->
+  <div id="manage-account-modal" class="modal-backdrop fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex flex-col justify-end md:justify-center md:items-center hidden p-0 md:p-4">
+    <div class="modal-sheet bg-darkcard border-t md:border border-gray-800 rounded-t-3xl md:rounded-2xl p-4 sm:p-6 w-full md:max-w-md space-y-4 shadow-2xl max-h-[88dvh] md:max-h-[90vh] overflow-y-auto pb-[max(1.25rem,env(safe-area-inset-bottom,0px))]">
+      <div class="w-12 h-1.5 bg-gray-700/80 rounded-full mx-auto mb-2 md:hidden"></div>
+
+      <div class="flex justify-between items-center border-b border-gray-800 pb-3">
+        <h3 class="font-bold text-white text-sm sm:text-base flex items-center gap-2">
+          <i data-lucide="sliders" class="w-4 h-4 text-indigo-400"></i>
+          <span id="manage-modal-title">إدارة حساب الصفحة</span>
+        </h3>
+        <button onclick="closeModal('manage-account-modal')" class="touch-target text-gray-400 hover:text-white rounded-lg">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div class="p-3 bg-gray-900/80 rounded-xl border border-gray-800 space-y-2 text-xs">
+        <div class="flex justify-between items-center">
+          <span class="text-gray-400">اسم الصفحة:</span>
+          <span id="manage-acc-name" class="font-bold text-white"></span>
+        </div>
+        <div class="flex justify-between items-center">
+          <span class="text-gray-400">معرف الحساب:</span>
+          <span id="manage-acc-id" class="font-mono text-gray-300 truncate max-w-[200px]"></span>
+        </div>
+        <div class="flex justify-between items-center">
+          <span class="text-gray-400">حالة الجلسة:</span>
+          <span id="manage-acc-status" class="px-2 py-0.5 rounded text-[10px] font-bold"></span>
+        </div>
+      </div>
+
+      <!-- Session Cookies Quick Injection Box -->
+      <div class="space-y-1.5 text-xs">
+        <label class="block font-semibold text-gray-300">تحديث كوكيز الجلسة (Session Cookies):</label>
+        <textarea id="manage-cookies-input" rows="2" placeholder="الصق كوكيز الجلسة بصيغة JSON أو c_user=...; xs=..." class="w-full bg-gray-900 border border-gray-700 rounded-lg p-2.5 text-[16px] sm:text-xs text-white"></textarea>
+        <button onclick="submitImportSession()" class="touch-target w-full bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-300 border border-indigo-500/40 font-bold py-2 rounded-lg text-xs transition-all flex items-center justify-center gap-1.5">
+          <i data-lucide="key" class="w-3.5 h-3.5"></i>
+          <span>حفظ وتشفير الجلسة فوراً</span>
+        </button>
+      </div>
+
+      <!-- Action Buttons Grid -->
+      <div class="space-y-2 pt-2 border-t border-gray-800 text-xs">
+        <button onclick="verifyActivePageScopes()" class="touch-target w-full bg-gray-800 hover:bg-gray-700 text-emerald-300 font-bold py-2.5 rounded-lg border border-gray-700 flex items-center justify-center gap-2">
+          <i data-lucide="check-circle" class="w-4 h-4 text-emerald-400"></i>
+          <span>فحص الارتباط والصلاحيات الآن</span>
+        </button>
+
+        <button id="manage-pause-btn" onclick="toggleActiveAccountPause()" class="touch-target w-full bg-gray-800 hover:bg-gray-700 text-amber-300 font-bold py-2.5 rounded-lg border border-gray-700 flex items-center justify-center gap-2">
+          <i data-lucide="pause-circle" class="w-4 h-4 text-amber-400"></i>
+          <span id="manage-pause-text">إيقاف المراقبة مؤقتاً</span>
+        </button>
+
+        <button onclick="disconnectActiveAccount()" class="touch-target w-full bg-gray-800 hover:bg-gray-700 text-rose-300 font-bold py-2.5 rounded-lg border border-gray-700 flex items-center justify-center gap-2">
+          <i data-lucide="log-out" class="w-4 h-4 text-rose-400"></i>
+          <span>تسجيل الخروج وفصل الجلسة فقط (مع إبقاء المنتجات)</span>
+        </button>
+
+        <button onclick="deleteActiveAccount()" class="touch-target w-full bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 font-bold py-2.5 rounded-lg border border-rose-800/60 flex items-center justify-center gap-2 shadow-lg shadow-rose-950/50">
+          <i data-lucide="trash-2" class="w-4 h-4 text-rose-400"></i>
+          <span>حذف الصفحة وجميع بياناتها نهائياً (Purge)</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================== -->
   <!-- MOBILE BOTTOM DOCK (STANDALONE PWA NAVIGATION) -->
   <!-- ========================================== -->
   <nav class="md:hidden fixed bottom-0 left-0 right-0 bg-gray-900/95 border-t border-gray-800 z-40 flex items-center justify-around px-2 backdrop-blur-md pb-[max(0.35rem,env(safe-area-inset-bottom,0px))] pt-1" style="height: calc(3.6rem + env(safe-area-inset-bottom, 0px));">
@@ -718,6 +799,8 @@
   <!-- ========================================== -->
   <script>
     let activeAccountId = null;
+    let accountsCache = [];
+    let managingAccountId = null;
     let ws = null;
     let stats = { total: 0, replied: 0, moderated: 0, phash: 0 };
 
@@ -892,6 +975,7 @@
       try {
         const res = await fetch("/api/accounts");
         const accounts = await res.json();
+        accountsCache = accounts;
         const countBadge = document.getElementById("account-count");
         if (countBadge) countBadge.textContent = accounts.length;
 
@@ -920,15 +1004,23 @@
             }`;
             div.onclick = () => selectAccount(acc.id);
 
-            const statusColor = acc.session_status === "active" ? "bg-emerald-500" : "bg-rose-500";
+            const statusColor = acc.session_status === "active" ? "bg-emerald-500" : (acc.session_status === "paused" ? "bg-amber-500" : "bg-rose-500");
+            const statusLabel = acc.session_status === "active" ? "نشط 24/7" : (acc.session_status === "paused" ? "متوقف مؤقتاً" : "مفصول");
+            const statusClass = acc.session_status === "active" ? "text-emerald-400" : (acc.session_status === "paused" ? "text-amber-400" : "text-rose-400");
+
             div.innerHTML = `
-              <div class="flex items-center justify-between">
-                <span class="font-bold text-xs text-white truncate">${acc.page_name}</span>
-                <span class="w-2 h-2 rounded-full ${statusColor} shrink-0"></span>
+              <div class="flex items-center justify-between gap-1">
+                <span class="font-bold text-xs text-white truncate max-w-[130px]">${acc.page_name}</span>
+                <div class="flex items-center gap-1.5 shrink-0">
+                  <button onclick="event.stopPropagation(); openManageModal('${acc.id}', '${acc.page_name.replace(/'/g, "\\'")}', '${acc.session_status}')" title="إدارة وفصل وحذف الصفحة" class="text-gray-400 hover:text-white p-1 rounded hover:bg-gray-700/60 transition-colors">
+                    <i data-lucide="sliders" class="w-3.5 h-3.5"></i>
+                  </button>
+                  <span class="w-2 h-2 rounded-full ${statusColor} shrink-0"></span>
+                </div>
               </div>
               <div class="flex items-center justify-between mt-1 text-[11px] text-gray-400">
                 <span class="font-mono text-gray-500">${acc.platform}</span>
-                <span class="text-indigo-400 text-[10px]">24/7 فعال</span>
+                <span class="${statusClass} text-[10px] font-semibold">${statusLabel}</span>
               </div>
             `;
             list.appendChild(div);
@@ -943,7 +1035,7 @@
                 : "bg-gray-800/80 text-gray-300 border-gray-700 hover:bg-gray-700"
             }`;
             pill.onclick = () => selectAccount(acc.id);
-            const dotColor = acc.session_status === "active" ? "bg-emerald-400" : "bg-rose-400";
+            const dotColor = acc.session_status === "active" ? "bg-emerald-400" : (acc.session_status === "paused" ? "bg-amber-400" : "bg-rose-400");
             pill.innerHTML = `
               <span class="w-2 h-2 rounded-full ${dotColor}"></span>
               <span class="truncate max-w-[100px]">${acc.page_name}</span>
@@ -958,6 +1050,7 @@
           loadSavedReplies(activeAccountId);
           loadRadarLogs(activeAccountId);
         }
+        lucide.createIcons();
       } catch (e) {
         console.error("Load accounts failed", e);
       }
@@ -974,6 +1067,7 @@
       const account_id = document.getElementById("link-acc-id").value.trim();
       const page_name = document.getElementById("link-page-name").value.trim();
       const proxy_url = document.getElementById("link-proxy").value.trim();
+      const raw_cookies_str = document.getElementById("link-cookies") ? document.getElementById("link-cookies").value.trim() : "";
 
       if (!account_id || !page_name) {
         alert("يرجى ملء جميع الحقول المطلوبة");
@@ -986,8 +1080,118 @@
         body: JSON.stringify({ account_id, platform, page_name, proxy_url })
       });
 
+      if (raw_cookies_str) {
+        try {
+          await fetch(`/api/accounts/${encodeURIComponent(account_id)}/session`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ raw_cookies_str })
+          });
+        } catch (e) {}
+      }
+
       closeModal("link-account-modal");
       activeAccountId = account_id;
+      loadAccounts();
+    }
+
+    // ==========================================
+    // MULTI-TENANT LIFECYCLE MANAGEMENT
+    // ==========================================
+    function openManageModal(accId, pageName, status) {
+      if (!accId) return alert("اختر صفحة أولاً");
+      managingAccountId = accId;
+      const acc = accountsCache.find(a => a.id === accId) || { id: accId, page_name: pageName || accId, session_status: status || "active" };
+
+      const titleEl = document.getElementById("manage-modal-title");
+      const nameEl = document.getElementById("manage-acc-name");
+      const idEl = document.getElementById("manage-acc-id");
+      const stBadge = document.getElementById("manage-acc-status");
+      const pauseText = document.getElementById("manage-pause-text");
+
+      if (titleEl) titleEl.textContent = `إدارة: ${acc.page_name}`;
+      if (nameEl) nameEl.textContent = acc.page_name;
+      if (idEl) idEl.textContent = acc.id;
+
+      if (stBadge) {
+        if (acc.session_status === "active") {
+          stBadge.className = "px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30";
+          stBadge.textContent = "نشط 24/7";
+          if (pauseText) pauseText.textContent = "إيقاف المراقبة مؤقتاً";
+        } else if (acc.session_status === "paused") {
+          stBadge.className = "px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30";
+          stBadge.textContent = "متوقف مؤقتاً";
+          if (pauseText) pauseText.textContent = "استئناف وتشغيل المراقبة";
+        } else {
+          stBadge.className = "px-2 py-0.5 rounded text-[10px] font-bold bg-rose-500/20 text-rose-400 border border-rose-500/30";
+          stBadge.textContent = "مفصول / غير متصل";
+          if (pauseText) pauseText.textContent = "تفعيل المراقبة";
+        }
+      }
+
+      openModal("manage-account-modal");
+      lucide.createIcons();
+    }
+
+    async function submitImportSession() {
+      if (!managingAccountId) return;
+      const raw_cookies_str = document.getElementById("manage-cookies-input").value.trim();
+      if (!raw_cookies_str) return alert("يرجى لصق كوكيز الجلسة أولاً");
+
+      try {
+        const res = await fetch(`/api/accounts/${encodeURIComponent(managingAccountId)}/session`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ raw_cookies_str })
+        });
+        const data = await res.json();
+        if (res.ok) {
+          alert(`✓ تم تشفير وحفظ الجلسة بنجاح (${data.cookies_count} كوكيز)!\nأصبح الحساب نشطاً.`);
+          document.getElementById("manage-cookies-input").value = "";
+          closeModal("manage-account-modal");
+          loadAccounts();
+        } else {
+          alert("خطأ في حفظ الجلسة: " + (data.detail || "تأكد من صيغة الكوكيز"));
+        }
+      } catch (e) {
+        alert("فشل الاتصال: " + e.message);
+      }
+    }
+
+    async function toggleActiveAccountPause() {
+      if (!managingAccountId) return;
+      const acc = accountsCache.find(a => a.id === managingAccountId);
+      const newStatus = (acc && acc.session_status === "paused") ? "active" : "paused";
+
+      await fetch(`/api/accounts/${encodeURIComponent(managingAccountId)}/status`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: newStatus })
+      });
+
+      closeModal("manage-account-modal");
+      loadAccounts();
+    }
+
+    async function disconnectActiveAccount() {
+      if (!managingAccountId) return;
+      if (!confirm("هل أنت متأكد من فصل جلسة هذا الحساب؟\n(سيتم مسح كوكيز الدخول من السيرفر مع الاحتفاظ بأسعار المنتجات والردود)")) return;
+
+      await fetch(`/api/accounts/${encodeURIComponent(managingAccountId)}/disconnect`, { method: "POST" });
+      closeModal("manage-account-modal");
+      alert("تم فصل الجلسة بأمان ومحو الكوكيز من الذاكرة.");
+      loadAccounts();
+    }
+
+    async function deleteActiveAccount() {
+      if (!managingAccountId) return;
+      if (!confirm("⚠️ تحذير نهائي:\nهل أنت متأكد تماماً من حذف هذه الصفحة نهائياً؟\nسيتم محو كافة المنشورات والأسعار وسجلات التفاعل وتدمير ملف الجلسة المشفر ذرياً!")) return;
+
+      const res = await fetch(`/api/accounts/${encodeURIComponent(managingAccountId)}`, { method: "DELETE" });
+      const data = await res.json();
+      closeModal("manage-account-modal");
+      alert("✓ تم حذف الصفحة وجميع بياناتها المشفرة نهائياً بنجاح.");
+      activeAccountId = null;
       loadAccounts();
     }
 
