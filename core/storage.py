@@ -97,7 +97,7 @@ class StorageEngine:
                     account_id TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
                     system_prompt TEXT NOT NULL,
                     tone_of_voice TEXT DEFAULT 'friendly',
-                    dialect TEXT DEFAULT 'Egyptian',
+                    dialect TEXT DEFAULT 'Fusha_Colloquial',
                     bad_words_list TEXT DEFAULT '[]',
                     auto_delete_toxic INTEGER DEFAULT 1,
                     auto_hide_spam INTEGER DEFAULT 1,
@@ -259,9 +259,9 @@ class StorageEngine:
                 """,
                 (
                     account_id,
-                    "أنت المساعد الذكي وخدمة العملاء الرسمية للصفحة. أجب بود واحترافية وبسرعة بناء على تفاصيل المنشور والأسعار المذكورة.",
+                    "أنت المساعد الذكي وخدمة العملاء الرسمية للصفحة. أجب بود واحترافية وبسرعة بناء على تفاصيل المنشور والأسعار المذكورة، متحدثاً بالعامية الفصحى المبسطة والمهذبة.",
                     "friendly",
-                    "Egyptian",
+                    "Fusha_Colloquial",
                 ),
             )
         return self.get_account(account_id) or {}

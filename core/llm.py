@@ -215,7 +215,7 @@ class GeminiOrchestrator:
                 }
 
             try:
-                resp = requests.post(url, json=payload, timeout=20.0)
+                resp = requests.post(url, json=payload, timeout=30.0)
                 if resp.status_code == 429:
                     bucket.trigger_cooldown(base_delay=20.0)
                     raise RuntimeError("Rate limit hit (429). Rotator queued backoff.")
@@ -240,9 +240,11 @@ class GeminiOrchestrator:
                 full_text = "".join(p.get("text", "") for p in parts)
                 return self._clean_json_markdown(full_text)
             except requests.exceptions.RequestException as e:
+                logger.warning(f"Request to {current_model} failed ({e}). Trying fallback if available...")
                 if hasattr(e, "response") and e.response is not None and e.response.status_code == 429:
                     bucket.trigger_cooldown(base_delay=25.0)
                 last_error = e
+                continue
 
         if last_error:
             raise last_error
@@ -324,19 +326,30 @@ class GeminiOrchestrator:
 
         Injects cached post digests as text context without re-sending post media tokens.
         """
-        dialect = persona.get("dialect", "Egyptian")
+        dialect = persona.get("dialect", "Fusha_Colloquial")
         tone = persona.get("tone_of_voice", "friendly")
+
+        dialect_instruction = "العامية الفصحى (اللهجة البيضاء الراقية - لغة عربية ميسرة وواضحة ومهذبة ومفهومة لجميع الدول العربية، بدون كلمات عامية إقليمية بحتة مثل 'بكام ده يا فندم' أو 'عامل كام'، بل بأسلوب مثل: 'أهلاً وسهلاً بك، يسعدنا خدمتك! سعر هذا المنتج هو... ومتاح التوصيل لكافة المناطق. تفضل بمراسلتنا لتأكيد طلبك')."
+        if dialect == "Egyptian":
+            dialect_instruction = "العامية المصرية الودودة."
+        elif dialect == "Saudi" or dialect == "Gulf":
+            dialect_instruction = "اللهجة السعودية والخليجية الراقية."
+        elif dialect == "Levantine":
+            dialect_instruction = "اللهجة الشامية المهذبة."
+        elif dialect == "Standard":
+            dialect_instruction = "العربية الفصحى الدقيقة."
+
         system_instruction = (
             f"You are the official 24/7 customer support and moderation agent for this social page.\n"
-            f"Dialect: {dialect} Arabic.\n"
-            f"Tone: {tone}.\n"
-            f"Persona Core: {persona.get('system_prompt', '')}\n\n"
+            f"Approved Dialect Style: {dialect_instruction}\n"
+            f"Tone of Voice: {tone}.\n"
+            f"Persona Core Instructions: {persona.get('system_prompt', '')}\n\n"
             "Return a strictly valid JSON response conforming to this exact JSON schema:\n"
             "{\n"
             '  "understood_context": "Brief summary of what post/item the user is referring to and what their media shows",\n'
             '  "decision": "REPLY | HIDE | DELETE | IGNORE | HUMAN_HANDOFF",\n'
-            '  "public_comment_reply": "Friendly response in dialect if comment",\n'
-            '  "private_dm_reply": "Direct message response if DM or private follow-up",\n'
+            '  "public_comment_reply": "Friendly response in the approved dialect if comment",\n'
+            '  "private_dm_reply": "Direct message response in the approved dialect if DM or private follow-up",\n'
             '  "moderation_reason": "Explanation if hidden, deleted, or escalated",\n'
             '  "toxicity_score": 0.0,\n'
             '  "confidence": 0.95\n'
@@ -345,7 +358,7 @@ class GeminiOrchestrator:
             "1. If customer asks for price, look at the post's visual_digest or saved replies and answer directly with warmth.\n"
             "2. If customer is insulting or severely toxic, set decision to DELETE or HIDE with appropriate toxicity_score.\n"
             "3. If customer sends a payment receipt or complex dispute, set decision to HUMAN_HANDOFF.\n"
-            "4. Never say you are an AI or bot. Speak as the actual store/page team."
+            "4. Never say you are an AI or bot. Speak as the actual store/page team in warm, professional Modern Simplified Arabic."
         )
 
         parts: List[Dict[str, Any]] = []

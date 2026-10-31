@@ -160,6 +160,13 @@
           <span id="oracle-status-text" class="text-emerald-300 font-bold truncate max-w-[120px]">فحص الصفحة</span>
         </button>
 
+        <!-- Chrome / Edge PWA Install Trigger -->
+        <button id="pwa-install-btn" onclick="triggerPwaInstall()" class="touch-target flex items-center gap-1.5 text-xs bg-emerald-950/40 hover:bg-emerald-900/50 text-emerald-300 px-2.5 sm:px-3 py-1.5 rounded-lg border border-emerald-500/40 transition-all shadow-sm" title="تثبيت التطبيق على متصفح كروم">
+          <i data-lucide="download" class="w-4 h-4 text-emerald-400 shrink-0"></i>
+          <span class="text-xs font-bold hidden sm:inline">تثبيت التطبيق</span>
+          <span class="text-xs font-bold sm:hidden">تثبيت</span>
+        </button>
+
         <!-- Push Alert Toggle -->
         <button id="push-btn" onclick="togglePushNotifications()" class="touch-target flex items-center gap-1.5 text-xs bg-gray-800/80 hover:bg-gray-700 text-gray-300 hover:text-white px-2.5 sm:px-3 py-1.5 rounded-lg border border-gray-700 transition-all" title="تفعيل إشعارات الهاتف">
           <i data-lucide="bell" class="w-4 h-4 text-indigo-400 shrink-0"></i>
@@ -490,10 +497,11 @@
                 <div>
                   <label class="block text-xs font-semibold text-gray-400 mb-1.5">اللهجة المعتمدة</label>
                   <select id="persona-dialect" class="w-full bg-gray-900 border border-gray-700 rounded-lg p-2.5 text-[16px] sm:text-xs text-white focus:outline-none focus:border-indigo-500 min-h-[44px]">
-                    <option value="Egyptian">العامية المصرية (Egyptian)</option>
-                    <option value="Saudi">اللهجة السعودية والخليجية (Gulf)</option>
+                    <option value="Fusha_Colloquial" selected>العامية الفصحى (اللهجة البيضاء المفهومة)</option>
+                    <option value="Standard">العربية الفصحى الدقيقة (Modern Standard)</option>
+                    <option value="Saudi">اللهجة الخليجية / السعودية (Gulf)</option>
                     <option value="Levantine">اللهجة الشامية (Levantine)</option>
-                    <option value="Standard">العربية الفصحى (Modern Standard)</option>
+                    <option value="Egyptian">العامية المصرية (Egyptian)</option>
                   </select>
                 </div>
                 <div>
@@ -1164,7 +1172,7 @@
         const res = await fetch(`/api/accounts/${accId}/persona`);
         const p = await res.json();
         document.getElementById("persona-prompt").value = p.system_prompt || "";
-        document.getElementById("persona-dialect").value = p.dialect || "Egyptian";
+        document.getElementById("persona-dialect").value = p.dialect || "Fusha_Colloquial";
         document.getElementById("persona-tone").value = p.tone_of_voice || "friendly";
         document.getElementById("persona-bad-words").value = (p.bad_words_list || []).join(", ");
         document.getElementById("persona-auto-delete").checked = !!p.auto_delete_toxic;
@@ -1379,6 +1387,38 @@
     // ==========================================
     // PWA & MOBILE WEB PUSH INTEGRATION
     // ==========================================
+    let deferredInstallPrompt = null;
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      deferredInstallPrompt = e;
+      const btn = document.getElementById('pwa-install-btn');
+      if (btn) {
+        btn.classList.remove('hidden');
+        btn.classList.add('flex', 'animate-pulse');
+      }
+    });
+
+    window.addEventListener('appinstalled', () => {
+      deferredInstallPrompt = null;
+      const btn = document.getElementById('pwa-install-btn');
+      if (btn) btn.innerHTML = `<i data-lucide="check" class="w-4 h-4 text-emerald-400"></i><span class="text-xs font-bold">مثبت ✓</span>`;
+      lucide.createIcons();
+    });
+
+    async function triggerPwaInstall() {
+      if (navigator.vibrate) navigator.vibrate(35);
+      if (deferredInstallPrompt) {
+        deferredInstallPrompt.prompt();
+        const { outcome } = await deferredInstallPrompt.userChoice;
+        if (outcome === 'accepted') {
+          console.log('User accepted PWA installation');
+        }
+        deferredInstallPrompt = null;
+      } else {
+        alert("لتثبيت التطبيق مباشرة عبر Google Chrome:\n\n1. اضغط على أيقونة التثبيت (🖥️ أو ⬇️) الموجودة في أقصى يمين شريط العنوان بأعلى المتصفح.\n2. أو اضغط على القائمة (ثلاث نقاط ⋮ أعلى اليمين) ثم اختر 'تثبيت التطبيق' (Install app) أو 'حفظ ومشاركة -> إنشاء اختصار'.\n\nسيعمل التطبيق كنافذة مستقلة وسريعة على سطح المكتب وشاشة هاتفك!");
+      }
+    }
+
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
         navigator.serviceWorker.register('/sw.js').then((reg) => {
