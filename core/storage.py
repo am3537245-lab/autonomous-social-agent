@@ -80,6 +80,9 @@ class StorageEngine:
                     id TEXT PRIMARY KEY,
                     platform TEXT CHECK(platform IN ('meta', 'tiktok')) NOT NULL,
                     page_name TEXT NOT NULL,
+                    page_id TEXT DEFAULT '',
+                    business_id TEXT DEFAULT '',
+                    profile_url TEXT DEFAULT '',
                     avatar_url TEXT DEFAULT '',
                     session_status TEXT CHECK(session_status IN ('active', 'expired', 'paused', 'needs_challenge')) DEFAULT 'active',
                     fingerprint_json TEXT DEFAULT '{}',
@@ -89,6 +92,16 @@ class StorageEngine:
                 );
                 """
             )
+
+            # Auto-migrate accounts columns if missing
+            cur = conn.execute("PRAGMA table_info(accounts);")
+            acc_cols = [r["name"] for r in cur.fetchall()]
+            if "page_id" not in acc_cols:
+                conn.execute("ALTER TABLE accounts ADD COLUMN page_id TEXT DEFAULT '';")
+            if "business_id" not in acc_cols:
+                conn.execute("ALTER TABLE accounts ADD COLUMN business_id TEXT DEFAULT '';")
+            if "profile_url" not in acc_cols:
+                conn.execute("ALTER TABLE accounts ADD COLUMN profile_url TEXT DEFAULT '';")
 
             # 2. Agent Personas
             conn.execute(
@@ -232,37 +245,64 @@ class StorageEngine:
         avatar_url: str = "",
         proxy_url: str = "",
         fingerprint_json: Optional[Dict[str, Any]] = None,
+        page_id: str = "",
+        business_id: str = "",
+        profile_url: str = "",
+        system_prompt: Optional[str] = None,
+        dialect: str = "Fusha_Colloquial",
+        tone_of_voice: str = "friendly",
     ) -> Dict[str, Any]:
-        """Register a new account/tenant with a default agent persona."""
+        """Register a new account/tenant with normalized IDs and agent persona."""
+        # Auto-normalize Meta URL if provided as account_id
+        if "facebook.com" in account_id:
+            import re
+            m_asset = re.search(r"asset_id=([0-9]+)", account_id)
+            m_biz = re.search(r"business_id=([0-9]+)", account_id)
+            m_prof = re.search(r"id=([0-9]+)", account_id)
+            if m_asset:
+                page_id = page_id or m_asset.group(1)
+            elif m_prof and not page_id:
+                page_id = page_id or m_prof.group(1)
+            if m_biz:
+                business_id = business_id or m_biz.group(1)
+            if m_prof:
+                profile_url = profile_url or f"https://www.facebook.com/profile.php?id={m_prof.group(1)}"
+            if page_id:
+                account_id = f"act_{page_id}"
+
         fp_str = json.dumps(fingerprint_json or {})
+        prompt = system_prompt or f"أنت خدمة العملاء الرسمية لصفحة {page_name}. أجب بلباقة وسرعة واحترافية بالعامية الفصحى الراقية بناء على أسعار وتفاصيل المنتجات."
+
         with self.get_connection() as conn:
             conn.execute(
                 """
-                INSERT INTO accounts (id, platform, page_name, avatar_url, proxy_url, fingerprint_json)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO accounts (id, platform, page_name, avatar_url, proxy_url, fingerprint_json, page_id, business_id, profile_url)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     platform=excluded.platform,
                     page_name=excluded.page_name,
                     avatar_url=excluded.avatar_url,
                     proxy_url=excluded.proxy_url,
                     fingerprint_json=excluded.fingerprint_json,
+                    page_id=CASE WHEN excluded.page_id != '' THEN excluded.page_id ELSE accounts.page_id END,
+                    business_id=CASE WHEN excluded.business_id != '' THEN excluded.business_id ELSE accounts.business_id END,
+                    profile_url=CASE WHEN excluded.profile_url != '' THEN excluded.profile_url ELSE accounts.profile_url END,
                     last_active_at=CURRENT_TIMESTAMP;
                 """,
-                (account_id, platform, page_name, avatar_url, proxy_url, fp_str),
+                (account_id, platform, page_name, avatar_url, proxy_url, fp_str, page_id, business_id, profile_url),
             )
 
-            # Insert default persona if missing
+            # Insert or update persona
             conn.execute(
                 """
-                INSERT OR IGNORE INTO agent_personas (account_id, system_prompt, tone_of_voice, dialect)
-                VALUES (?, ?, ?, ?);
+                INSERT INTO agent_personas (account_id, system_prompt, tone_of_voice, dialect)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(account_id) DO UPDATE SET
+                    system_prompt=CASE WHEN ? IS NOT NULL THEN excluded.system_prompt ELSE agent_personas.system_prompt END,
+                    tone_of_voice=excluded.tone_of_voice,
+                    dialect=excluded.dialect;
                 """,
-                (
-                    account_id,
-                    "أنت المساعد الذكي وخدمة العملاء الرسمية للصفحة. أجب بود واحترافية وبسرعة بناء على تفاصيل المنشور والأسعار المذكورة، متحدثاً بالعامية الفصحى المبسطة والمهذبة.",
-                    "friendly",
-                    "Fusha_Colloquial",
-                ),
+                (account_id, prompt, tone_of_voice, dialect, system_prompt),
             )
         return self.get_account(account_id) or {}
 

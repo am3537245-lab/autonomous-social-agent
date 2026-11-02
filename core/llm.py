@@ -355,10 +355,10 @@ class GeminiOrchestrator:
             '  "confidence": 0.95\n'
             "}\n"
             "Rules:\n"
-            "1. If customer asks for price, look at the post's visual_digest or saved replies and answer directly with warmth.\n"
+            "1. If customer asks for price, ALWAYS quote the exact price directly in public_comment_reply (do not hide it or only say 'check DM'). State the price and details warmly and clearly.\n"
             "2. If customer is insulting or severely toxic, set decision to DELETE or HIDE with appropriate toxicity_score.\n"
             "3. If customer sends a payment receipt or complex dispute, set decision to HUMAN_HANDOFF.\n"
-            "4. Never say you are an AI or bot. Speak as the actual store/page team in warm, professional Modern Simplified Arabic."
+            "4. Never say you are an AI or bot. Speak as the actual store/page team in warm, professional Modern Simplified Arabic (العامية الفصحى الميسرة) without any regional Egyptian terms like 'يا فندم'."
         )
 
         parts: List[Dict[str, Any]] = []
@@ -379,11 +379,33 @@ class GeminiOrchestrator:
         context_prompt += f"Sender: {sender_name or 'User'}\n"
         context_prompt += f"Message: {inbound_text or '(Attachment only)'}\n\n"
 
+        prods_list: List[Dict[str, Any]] = []
         if cached_post_digest:
+            digest_dict = dict(cached_post_digest)
+            if "visual_digest_json" in cached_post_digest and isinstance(cached_post_digest["visual_digest_json"], str):
+                try:
+                    vd = json.loads(cached_post_digest["visual_digest_json"])
+                    if isinstance(vd, dict):
+                        digest_dict.update(vd)
+                except Exception:
+                    pass
+
+            caption = cached_post_digest.get("caption_text", "")
+            raw_prods = digest_dict.get("detected_products_and_prices") or digest_dict.get("detected_products_json") or []
+            if isinstance(raw_prods, str):
+                try:
+                    raw_prods = json.loads(raw_prods)
+                except Exception:
+                    raw_prods = []
+            if isinstance(raw_prods, list):
+                prods_list = raw_prods
+
             context_prompt += "--- CACHED POST KNOWLEDGE (ZERO MEDIA TOKENS) ---\n"
-            context_prompt += f"Visual Breakdown: {cached_post_digest.get('visual_description', '')}\n"
-            context_prompt += f"OCR Visible Text: {cached_post_digest.get('ocr_extracted_text', '')}\n"
-            context_prompt += f"Products & Prices: {json.dumps(cached_post_digest.get('detected_products_and_prices', []), ensure_ascii=False)}\n\n"
+            if caption:
+                context_prompt += f"Post Caption: {caption}\n"
+            context_prompt += f"Visual Breakdown: {digest_dict.get('visual_summary') or digest_dict.get('visual_description', '')}\n"
+            context_prompt += f"OCR Visible Text: {digest_dict.get('ocr_extracted_text') or digest_dict.get('ocr_text', '')}\n"
+            context_prompt += f"Products & Prices: {json.dumps(prods_list, ensure_ascii=False)}\n\n"
 
         if matched_saved_reply:
             context_prompt += "--- SUGGESTED SAVED REPLY / FAQ ---\n"
@@ -401,15 +423,16 @@ class GeminiOrchestrator:
 
         # Offline / deterministic fallback if no API keys are present
         if not self.buckets:
-            # Deterministic fallback logic
+            # Deterministic fallback logic in Simplified Arabic (Fusha Colloquial)
             if matched_saved_reply:
                 reply = matched_saved_reply.get("reply_text")
-            elif cached_post_digest and cached_post_digest.get("detected_products_and_prices"):
-                prods = cached_post_digest.get("detected_products_and_prices")
-                price = prods[0].get("price", "متوفر حالياً")
-                reply = f"أهلاً بك يا فندم! بخصوص استفسارك، السعر هو {price}. يسعدنا تواصلك معنا دائماً."
+            elif cached_post_digest and prods_list:
+                prod = prods_list[0] if len(prods_list) > 0 else {}
+                p_name = prod.get("product_name") or prod.get("item", "الباقة")
+                price = prod.get("price_expression") or prod.get("price", "السعر موضح بالمنشور")
+                reply = f"أهلاً وسهلاً بك يا {sender_name}! يسعدنا تواصلك معنا. سعر {p_name} هو {price}. والتفاصيل كاملة متوفرة لدينا، تفضل بمراسلتنا لتأكيد طلبك."
             else:
-                reply = "أهلاً بحضرتك يا فندم! تم استلام رسالتك وفريق خدمة العملاء جاهز لمساعدتك في أي استفسار."
+                reply = f"أهلاً وسهلاً بك يا {sender_name}! يسعدنا تواصلك معنا وفريق خدمة العملاء جاهز لمساعدتك في أي استفسار."
 
             return AgentDecision(
                 understood_context=f"Inbound {interaction_type} from {sender_name}: {inbound_text[:50]}",

@@ -150,6 +150,11 @@ class AccountCreateRequest(BaseModel):
     page_name: str
     avatar_url: Optional[str] = ""
     proxy_url: Optional[str] = ""
+    page_id: Optional[str] = ""
+    business_id: Optional[str] = ""
+    profile_url: Optional[str] = ""
+    system_prompt: Optional[str] = None
+    dialect: Optional[str] = "Fusha_Colloquial"
 
 
 class AccountStatusUpdateRequest(BaseModel):
@@ -210,6 +215,11 @@ def create_account(req: AccountCreateRequest) -> Dict[str, Any]:
         page_name=req.page_name,
         avatar_url=req.avatar_url or "",
         proxy_url=req.proxy_url or "",
+        page_id=req.page_id or "",
+        business_id=req.business_id or "",
+        profile_url=req.profile_url or "",
+        system_prompt=req.system_prompt,
+        dialect=req.dialect or "Fusha_Colloquial",
     )
     return acc
 
