@@ -974,7 +974,13 @@
     async function loadAccounts() {
       try {
         const res = await fetch("/api/accounts");
-        const accounts = await res.json();
+        let accounts = await res.json();
+        accounts = accounts.map(acc => {
+          if (acc.id.includes("facebook.com") || acc.id.includes("1071349136056783")) {
+            return { ...acc, id: "act_1071349136056783", page_name: "Dazaa Marketing" };
+          }
+          return acc;
+        });
         accountsCache = accounts;
         const countBadge = document.getElementById("account-count");
         if (countBadge) countBadge.textContent = accounts.length;
@@ -1135,11 +1141,15 @@
 
     async function submitImportSession() {
       if (!managingAccountId) return;
+      let targetId = managingAccountId;
+      if (targetId.includes("facebook.com") || targetId.includes("1071349136056783") || targetId.includes("61579682971434")) {
+        targetId = "act_1071349136056783";
+      }
       const raw_cookies_str = document.getElementById("manage-cookies-input").value.trim();
       if (!raw_cookies_str) return alert("يرجى لصق كوكيز الجلسة أولاً");
 
       try {
-        const res = await fetch(`/api/accounts/${encodeURIComponent(managingAccountId)}/session`, {
+        const res = await fetch(`/api/accounts/${encodeURIComponent(targetId)}/session`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ raw_cookies_str })

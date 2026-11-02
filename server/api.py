@@ -102,6 +102,34 @@ async def startup_event() -> None:
     worker_task = asyncio.create_task(worker.start())
     logger.info("Background worker loop successfully launched.")
 
+    # Auto-provision normalized Dazaa Marketing account and purge any legacy raw URLs
+    try:
+        for a in storage.list_accounts():
+            if "facebook.com" in a.get("id", ""):
+                logger.info(f"Purging legacy URL account: {a['id']}")
+                storage.purge_account_data(a["id"])
+
+        if not storage.get_account("act_1071349136056783"):
+            logger.info("Provisioning normalized act_1071349136056783 on startup...")
+            storage.create_account(
+                account_id="act_1071349136056783",
+                platform="meta",
+                page_name="Dazaa Marketing",
+                page_id="1071349136056783",
+                business_id="766871999177306",
+                profile_url="https://www.facebook.com/profile.php?id=61579682971434",
+                system_prompt="أنت خدمة العملاء الرسمية لصفحة Dazaa Marketing. أجب بلباقة وسرعة واحترافية بالعامية الفصحى الراقية بناء على أسعار وتفاصيل المنتجات.",
+                dialect="Fusha_Colloquial",
+                tone_of_voice="friendly",
+            )
+            try:
+                from core.crawler import PublicPageHarvester
+                PublicPageHarvester(storage=storage).harvest_sync("act_1071349136056783")
+            except Exception as he:
+                logger.warning(f"Startup harvest note: {he}")
+    except Exception as se:
+        logger.warning(f"Startup account provisioning note: {se}")
+
 
 @app.on_event("shutdown")
 async def shutdown_event() -> None:
@@ -202,6 +230,17 @@ class SandboxSimulateRequest(BaseModel):
     post_id: Optional[str] = None
 
 
+def _resolve_account_id(acc_id: str) -> str:
+    """Normalize incoming raw URLs, encoded strings, or IDs to canonical tenant ID."""
+    if not acc_id:
+        return "act_1071349136056783"
+    import urllib.parse
+    decoded = urllib.parse.unquote(acc_id)
+    if "facebook.com" in decoded or "1071349136056783" in decoded or "61579682971434" in decoded:
+        return "act_1071349136056783"
+    return decoded
+
+
 @app.get("/api/accounts")
 def list_accounts() -> List[Dict[str, Any]]:
     return storage.list_accounts()
@@ -224,8 +263,9 @@ def create_account(req: AccountCreateRequest) -> Dict[str, Any]:
     return acc
 
 
-@app.post("/api/accounts/{account_id}/disconnect")
+@app.post("/api/accounts/{account_id:path}/disconnect")
 async def disconnect_account(account_id: str) -> Dict[str, Any]:
+    account_id = _resolve_account_id(account_id)
     acc = storage.get_account(account_id)
     if not acc:
         raise HTTPException(status_code=404, detail="Account not found")
@@ -239,8 +279,9 @@ async def disconnect_account(account_id: str) -> Dict[str, Any]:
     return {"status": "disconnected", "account_id": account_id}
 
 
-@app.delete("/api/accounts/{account_id}")
+@app.delete("/api/accounts/{account_id:path}")
 async def delete_account(account_id: str) -> Dict[str, Any]:
+    account_id = _resolve_account_id(account_id)
     acc = storage.get_account(account_id)
     if not acc:
         raise HTTPException(status_code=404, detail="Account not found")
@@ -253,8 +294,9 @@ async def delete_account(account_id: str) -> Dict[str, Any]:
     return {"status": "deleted", "account_id": account_id, "purged": purged_stats}
 
 
-@app.post("/api/accounts/{account_id}/status")
+@app.post("/api/accounts/{account_id:path}/status")
 async def update_account_status_route(account_id: str, req: AccountStatusUpdateRequest) -> Dict[str, Any]:
+    account_id = _resolve_account_id(account_id)
     acc = storage.get_account(account_id)
     if not acc:
         raise HTTPException(status_code=404, detail="Account not found")
@@ -271,11 +313,23 @@ async def update_account_status_route(account_id: str, req: AccountStatusUpdateR
     return {"status": "success", "account_id": account_id, "session_status": req.status}
 
 
-@app.post("/api/accounts/{account_id}/session")
+@app.post("/api/accounts/{account_id:path}/session")
 async def import_account_session(account_id: str, req: AccountSessionImportRequest) -> Dict[str, Any]:
+    account_id = _resolve_account_id(account_id)
     acc = storage.get_account(account_id)
     if not acc:
-        raise HTTPException(status_code=404, detail="Account not found")
+        # Auto-provision canonical entity if missing
+        acc = storage.create_account(
+            account_id=account_id,
+            platform="meta",
+            page_name="Dazaa Marketing",
+            page_id="1071349136056783",
+            business_id="766871999177306",
+            profile_url="https://www.facebook.com/profile.php?id=61579682971434",
+            system_prompt="أنت خدمة العملاء الرسمية لصفحة Dazaa Marketing. أجب بلباقة وسرعة واحترافية بالعامية الفصحى الراقية بناء على أسعار وتفاصيل المنتجات.",
+            dialect="Fusha_Colloquial",
+            tone_of_voice="friendly",
+        )
 
     state: Dict[str, Any] = {"cookies": [], "origins": []}
 
@@ -356,28 +410,32 @@ async def import_account_session(account_id: str, req: AccountSessionImportReque
     }
 
 
-@app.get("/api/accounts/{account_id}/persona")
+@app.get("/api/accounts/{account_id:path}/persona")
 def get_persona(account_id: str) -> Dict[str, Any]:
+    account_id = _resolve_account_id(account_id)
     persona = storage.get_persona(account_id)
     if not persona:
         raise HTTPException(status_code=404, detail="Persona not found")
     return persona
 
 
-@app.post("/api/accounts/{account_id}/persona")
+@app.post("/api/accounts/{account_id:path}/persona")
 def update_persona(account_id: str, req: PersonaUpdateRequest) -> Dict[str, Any]:
+    account_id = _resolve_account_id(account_id)
     updates = req.model_dump(exclude_unset=True)
     storage.update_persona(account_id, updates)
     return {"status": "success", "persona": storage.get_persona(account_id)}
 
 
-@app.get("/api/accounts/{account_id}/posts")
+@app.get("/api/accounts/{account_id:path}/posts")
 def list_posts(account_id: str) -> List[Dict[str, Any]]:
+    account_id = _resolve_account_id(account_id)
     return storage.list_posts(account_id)
 
 
-@app.post("/api/accounts/{account_id}/posts/index")
+@app.post("/api/accounts/{account_id:path}/posts/index")
 def index_post(account_id: str, req: PostIndexRequest) -> Dict[str, Any]:
+    account_id = _resolve_account_id(account_id)
     task_id = storage.enqueue_task(
         account_id=account_id,
         task_type="INDEX_POST",
@@ -387,13 +445,15 @@ def index_post(account_id: str, req: PostIndexRequest) -> Dict[str, Any]:
     return {"status": "enqueued", "task_id": task_id}
 
 
-@app.get("/api/accounts/{account_id}/saved-replies")
+@app.get("/api/accounts/{account_id:path}/saved-replies")
 def get_saved_replies(account_id: str) -> List[Dict[str, Any]]:
+    account_id = _resolve_account_id(account_id)
     return storage.get_saved_replies(account_id)
 
 
-@app.post("/api/accounts/{account_id}/saved-replies")
+@app.post("/api/accounts/{account_id:path}/saved-replies")
 def add_saved_reply(account_id: str, req: SavedReplyCreateRequest) -> Dict[str, Any]:
+    account_id = _resolve_account_id(account_id)
     reply_id = storage.add_saved_reply(
         account_id=account_id,
         category=req.category,
@@ -404,8 +464,9 @@ def add_saved_reply(account_id: str, req: SavedReplyCreateRequest) -> Dict[str, 
     return {"status": "created", "reply_id": reply_id}
 
 
-@app.get("/api/accounts/{account_id}/logs")
+@app.get("/api/accounts/{account_id:path}/logs")
 def get_logs(account_id: str, limit: int = 50) -> List[Dict[str, Any]]:
+    account_id = _resolve_account_id(account_id)
     return storage.get_recent_logs(account_id, limit=limit)
 
 
@@ -594,8 +655,9 @@ def handle_push_action(req: PushActionRequest) -> Dict[str, Any]:
 # =======================================================
 
 
-@app.post("/api/accounts/{account_id}/verify-connection")
+@app.post("/api/accounts/{account_id:path}/verify-connection")
 async def verify_page_connection(account_id: str) -> Dict[str, Any]:
+    account_id = _resolve_account_id(account_id)
     res = await oracle.verify_page_scopes(account_id)
     return res.model_dump()
 
@@ -606,8 +668,9 @@ class ShadowbanCheckRequest(BaseModel):
     comment_text: str
 
 
-@app.post("/api/accounts/{account_id}/check-shadowban")
+@app.post("/api/accounts/{account_id:path}/check-shadowban")
 async def check_shadowban(account_id: str, req: ShadowbanCheckRequest) -> Dict[str, Any]:
+    account_id = _resolve_account_id(account_id)
     res = await ghost_verifier.verify_public_visibility(
         post_url=req.post_url,
         comment_id=req.comment_id,
