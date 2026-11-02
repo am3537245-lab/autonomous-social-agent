@@ -284,21 +284,55 @@ async def import_account_session(account_id: str, req: AccountSessionImportReque
     elif req.cookies:
         state["cookies"] = req.cookies
     elif req.raw_cookies_str:
+        content = req.raw_cookies_str.strip()
         cookie_list = []
         domain = ".facebook.com" if acc.get("platform") == "meta" else ".tiktok.com"
-        for item in req.raw_cookies_str.split(";"):
-            item = item.strip()
-            if "=" in item:
-                k, v = item.split("=", 1)
-                cookie_list.append({
-                    "name": k.strip(),
-                    "value": v.strip(),
-                    "domain": domain,
-                    "path": "/",
-                    "httpOnly": False,
-                    "secure": True,
-                    "sameSite": "Lax",
-                })
+
+        # 1. Check if user pasted JSON array or Playwright storageState object
+        if content.startswith("[") or content.startswith("{"):
+            try:
+                parsed_json = json.loads(content)
+                if isinstance(parsed_json, list):
+                    cookie_list = parsed_json
+                elif isinstance(parsed_json, dict):
+                    cookie_list = parsed_json.get("cookies", [])
+                    state["origins"] = parsed_json.get("origins", [])
+            except json.JSONDecodeError:
+                pass
+
+        # 2. Check if Netscape/curl format
+        if not cookie_list and "\t" in content:
+            for line in content.splitlines():
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                parts = line.split("\t")
+                if len(parts) >= 7:
+                    cookie_list.append({
+                        "name": parts[5],
+                        "value": parts[6],
+                        "domain": parts[0],
+                        "path": parts[2],
+                        "httpOnly": parts[5] in ("xs", "datr", "fr", "sb"),
+                        "secure": parts[3].upper() == "TRUE",
+                        "sameSite": "Lax",
+                    })
+
+        # 3. Standard raw cookie string (e.g. c_user=...; xs=...)
+        if not cookie_list:
+            for item in content.split(";"):
+                item = item.strip()
+                if "=" in item:
+                    k, v = item.split("=", 1)
+                    cookie_list.append({
+                        "name": k.strip(),
+                        "value": v.strip(),
+                        "domain": domain,
+                        "path": "/",
+                        "httpOnly": False,
+                        "secure": True,
+                        "sameSite": "Lax",
+                    })
         state["cookies"] = cookie_list
 
     if not state.get("cookies"):
