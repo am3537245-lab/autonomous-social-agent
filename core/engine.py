@@ -56,8 +56,15 @@ def generate_tenant_fingerprint(account_id: str, platform: str) -> Dict[str, Any
 
 
 def _get_or_create_cipher() -> Fernet:
-    """Ensure a master encryption key exists for tenant storage states."""
+    """Ensure a master encryption key exists for tenant storage states, supporting cloud env vars."""
     os.makedirs(DEFAULT_STORAGE_DIR, exist_ok=True)
+    env_key = os.environ.get("APP_MASTER_KEY")
+    if env_key:
+        try:
+            return Fernet(env_key.encode("utf-8").strip())
+        except Exception:
+            pass
+
     if not os.path.exists(KEY_PATH):
         key = Fernet.generate_key()
         with open(KEY_PATH, "wb") as f:
@@ -159,14 +166,38 @@ class TenantContext:
         self.storage_file = get_tenant_storage_path(account_id)
 
     def has_saved_session(self) -> bool:
-        return os.path.exists(self.storage_file)
+        if os.path.exists(self.storage_file):
+            return True
+        try:
+            from core.storage import StorageEngine
+            return bool(StorageEngine().get_encrypted_vault_blob(self.account_id))
+        except Exception:
+            return False
 
     def load_decrypted_state(self) -> Optional[Dict[str, Any]]:
-        """Decrypt storage state JSON for Playwright initialization."""
-        if not self.has_saved_session():
+        """Decrypt storage state JSON for Playwright initialization, with DB rehydration."""
+        cipher = _get_or_create_cipher()
+
+        # If file missing on disk, attempt in-DB vault rehydration
+        if not os.path.exists(self.storage_file):
+            try:
+                from core.storage import StorageEngine
+                st = StorageEngine()
+                blob = st.get_encrypted_vault_blob(self.account_id)
+                if blob:
+                    import base64
+                    encrypted_data = base64.b64decode(blob.strip())
+                    os.makedirs(os.path.dirname(self.storage_file), exist_ok=True)
+                    with open(self.storage_file, "wb") as f:
+                        f.write(encrypted_data)
+                    logger.info(f"Rehydrated disk vault for {self.account_id} from database blob.")
+            except Exception as rehydrate_err:
+                logger.warning(f"DB rehydration attempt failed for {self.account_id}: {rehydrate_err}")
+
+        if not os.path.exists(self.storage_file):
             return None
+
         try:
-            cipher = _get_or_create_cipher()
             with open(self.storage_file, "rb") as f:
                 encrypted_data = f.read()
             decrypted_bytes = cipher.decrypt(encrypted_data)
@@ -176,14 +207,25 @@ class TenantContext:
             return None
 
     def save_encrypted_state(self, state_data: Dict[str, Any]) -> None:
-        """Encrypt and save browser storage state JSON."""
+        """Encrypt and save browser storage state JSON both to disk and database blob."""
         try:
             cipher = _get_or_create_cipher()
             json_bytes = json.dumps(state_data).encode("utf-8")
             encrypted = cipher.encrypt(json_bytes)
+            os.makedirs(os.path.dirname(self.storage_file), exist_ok=True)
             with open(self.storage_file, "wb") as f:
                 f.write(encrypted)
-            logger.info(f"Encrypted session state saved for {self.account_id}")
+            logger.info(f"Encrypted session state saved on disk for {self.account_id}")
+
+            # Also persist into database for cold-boot cloud resilience
+            try:
+                import base64
+                from core.storage import StorageEngine
+                b64_str = base64.b64encode(encrypted).decode("utf-8")
+                StorageEngine().save_encrypted_vault_blob(self.account_id, b64_str)
+                logger.info(f"Encrypted session vault persisted to DB blob for {self.account_id}")
+            except Exception as db_err:
+                logger.warning(f"Could not persist vault blob to DB for {self.account_id}: {db_err}")
         except Exception as e:
             logger.error(f"Failed to save encrypted state for {self.account_id}: {e}")
 

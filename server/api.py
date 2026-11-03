@@ -2,15 +2,18 @@
 
 import asyncio
 import base64
+import hashlib
+import hmac
 import json
 import logging
 import os
 import time
 from typing import Any, Dict, List, Optional
 import psutil
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+import requests
+from fastapi import FastAPI, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
 from core.engine import StealthBrowserManager
@@ -705,6 +708,170 @@ def get_ingress_status() -> Dict[str, Any]:
         "active_url": url,
         "is_remote": ingress_manager.remote,
         "lan_url": ingress_manager.local_url,
+    }
+
+
+# =======================================================
+# META OFFICIAL EVENT-DRIVEN WEBHOOK (PRIMARY DUAL-RAIL INGRESS)
+# =======================================================
+
+META_VERIFY_TOKEN = os.environ.get("META_VERIFY_TOKEN", "dazaa_secret_verify_token_2026")
+META_APP_SECRET = os.environ.get("META_APP_SECRET", "dazaa_app_secret_super_2026")
+META_PAGE_ACCESS_TOKEN = os.environ.get("META_PAGE_ACCESS_TOKEN", "")
+
+
+@app.get("/api/webhooks/meta")
+def meta_webhook_verification(request: Request) -> Response:
+    """RFC-compliant Meta Webhook Handshake Verification."""
+    params = dict(request.query_params)
+    mode = params.get("hub.mode")
+    token = params.get("hub.verify_token")
+    challenge = params.get("hub.challenge", "")
+
+    if mode == "subscribe" and token == META_VERIFY_TOKEN:
+        logger.info("Meta Webhook verification handshake succeeded.")
+        return PlainTextResponse(challenge, status_code=200)
+
+    logger.warning(f"Meta Webhook verification failed: mode={mode}, token_match={token == META_VERIFY_TOKEN}")
+    raise HTTPException(status_code=403, detail="Verification token mismatch")
+
+
+@app.post("/api/webhooks/meta")
+async def meta_webhook_receiver(request: Request) -> Dict[str, Any]:
+    """Inbound Meta Webhook Event Processor with HMAC-SHA256 signature verification,
+
+    atomic idempotency, and dual-rail dispatch (Graph API -> Stealth Queue fallback).
+    """
+    raw_body = await request.body()
+    signature_header = request.headers.get("X-Hub-Signature-256", "")
+
+    # 1. Cryptographic Signature Assertion (HMAC-SHA256)
+    if not signature_header or not signature_header.startswith("sha256="):
+        logger.warning("Meta Webhook rejected: Missing or malformed X-Hub-Signature-256 header")
+        raise HTTPException(status_code=403, detail="Missing or invalid signature header")
+
+    expected_signature = "sha256=" + hmac.new(
+        META_APP_SECRET.encode("utf-8"), raw_body, hashlib.sha256
+    ).hexdigest()
+
+    if not hmac.compare_digest(signature_header, expected_signature):
+        logger.warning("Meta Webhook rejected: HMAC-SHA256 signature mismatch")
+        raise HTTPException(status_code=403, detail="Cryptographic signature verification failed")
+
+    # 2. Parse Inbound Payload
+    try:
+        payload = json.loads(raw_body.decode("utf-8"))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid JSON body: {e}")
+
+    entries = payload.get("entry", [])
+    processed_events = []
+    ignored_duplicates = 0
+
+    for entry in entries:
+        page_asset_id = str(entry.get("id", ""))
+        account_id = _resolve_account_id(page_asset_id)
+
+        # Process feed changes (comments)
+        for change in entry.get("changes", []):
+            if change.get("field") == "feed":
+                val = change.get("value", {})
+                item_type = val.get("item")
+                if item_type in ("comment", "post"):
+                    comment_id = str(val.get("comment_id") or val.get("post_id", ""))
+                    if not comment_id:
+                        continue
+
+                    # 3. Atomic Idempotency Check & Replay Defense
+                    is_new = storage.check_and_reserve_event(
+                        account_id=account_id,
+                        external_event_id=comment_id,
+                        idempotency_key=f"meta_feed_{comment_id}",
+                    )
+                    if not is_new:
+                        ignored_duplicates += 1
+                        continue
+
+                    inbound_text = val.get("message", "")
+                    sender_name = val.get("sender_name") or val.get("from", {}).get("name", "Customer")
+                    post_id = val.get("post_id", "")
+
+                    # 4. Context Lookup & Multimodal Inference
+                    cached_post = storage.get_post_by_external_id(account_id, post_id) if post_id else None
+                    persona = storage.get_persona(account_id) or {
+                        "system_prompt": "أنت خدمة العملاء الرسمية لصفحة Dazaa Marketing. أجب بلباقة وسرعة واحترافية بالعامية الفصحى.",
+                        "dialect": "Fusha_Colloquial",
+                        "tone_of_voice": "friendly",
+                    }
+
+                    decision = orchestrator.infer_interaction_decision(
+                        inbound_text=inbound_text,
+                        sender_name=sender_name,
+                        interaction_type="comment",
+                        persona=persona,
+                        cached_post_digest=cached_post,
+                    )
+
+                    reply_text = decision.public_comment_reply or decision.private_dm_reply or ""
+
+                    # 5. Dual-Rail Outbound Dispatch (Graph API Rail -> Stealth Worker Fallback)
+                    dispatched_via = "STEALTH_QUEUE"
+                    if META_PAGE_ACCESS_TOKEN:
+                        try:
+                            # Primary Rail: Instant Graph API v20.0
+                            api_url = f"https://graph.facebook.com/v20.0/{comment_id}/comments"
+                            resp = requests.post(
+                                api_url,
+                                params={"access_token": META_PAGE_ACCESS_TOKEN},
+                                json={"message": reply_text},
+                                timeout=6.0,
+                            )
+                            if resp.status_code in (200, 201):
+                                dispatched_via = "GRAPH_API_V20"
+                            else:
+                                logger.warning(f"Graph API response {resp.status_code}, activating stealth circuit-breaker...")
+                        except Exception as api_err:
+                            logger.warning(f"Graph API rail network fault: {api_err}. Activating stealth fallback...")
+
+                    if dispatched_via == "STEALTH_QUEUE":
+                        # Secondary Rail: Enqueue for Autonomous Stealth Worker
+                        storage.enqueue_task(
+                            account_id=account_id,
+                            task_type="PUBLISH_REPLY",
+                            payload={
+                                "comment_id": comment_id,
+                                "reply_text": reply_text,
+                                "post_id": post_id,
+                                "target_url": f"https://www.facebook.com/{comment_id}",
+                            },
+                            priority=2,
+                        )
+
+                    # Log Interaction
+                    storage.log_interaction(
+                        account_id=account_id,
+                        external_event_id=comment_id,
+                        interaction_type="comment",
+                        sender_name=sender_name,
+                        inbound_text=inbound_text,
+                        agent_action=decision.decision if isinstance(decision.decision, str) else str(decision.decision),
+                        agent_response=reply_text,
+                        confidence=decision.confidence,
+                        post_id=post_id,
+                    )
+
+                    processed_events.append({
+                        "event_id": comment_id,
+                        "dispatched_via": dispatched_via,
+                        "reply": reply_text,
+                        "action": decision.decision,
+                    })
+
+    return {
+        "status": "success",
+        "processed_count": len(processed_events),
+        "ignored_duplicates": ignored_duplicates,
+        "events": processed_events,
     }
 
 

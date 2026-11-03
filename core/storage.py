@@ -87,6 +87,7 @@ class StorageEngine:
                     session_status TEXT CHECK(session_status IN ('active', 'expired', 'paused', 'needs_challenge')) DEFAULT 'active',
                     fingerprint_json TEXT DEFAULT '{}',
                     proxy_url TEXT DEFAULT '',
+                    encrypted_vault_blob TEXT DEFAULT '',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     last_active_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
@@ -102,6 +103,8 @@ class StorageEngine:
                 conn.execute("ALTER TABLE accounts ADD COLUMN business_id TEXT DEFAULT '';")
             if "profile_url" not in acc_cols:
                 conn.execute("ALTER TABLE accounts ADD COLUMN profile_url TEXT DEFAULT '';")
+            if "encrypted_vault_blob" not in acc_cols:
+                conn.execute("ALTER TABLE accounts ADD COLUMN encrypted_vault_blob TEXT DEFAULT '';")
 
             # 2. Agent Personas
             conn.execute(
@@ -228,10 +231,26 @@ class StorageEngine:
                 """
             )
 
+            # 8. Event Idempotency Ledger (Replay Attack Defense & Zero-Duplication Engine)
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS event_idempotency_ledger (
+                    id TEXT PRIMARY KEY,
+                    account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+                    external_event_id TEXT NOT NULL,
+                    idempotency_key TEXT NOT NULL,
+                    processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    status TEXT DEFAULT 'PROCESSED',
+                    UNIQUE(account_id, external_event_id)
+                );
+                """
+            )
+
             # Indices for low-latency lookups
             conn.execute("CREATE INDEX IF NOT EXISTS idx_posts_account_post ON posts_context_cache(account_id, external_post_id);")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_logs_account_time ON interaction_logs(account_id, timestamp DESC);")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_status_sched ON task_queue(status, scheduled_at, priority DESC);")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_idempotency_event ON event_idempotency_ledger(account_id, external_event_id);")
 
     # ==========================
     # ACCOUNT MANAGEMENT
@@ -402,6 +421,72 @@ class StorageEngine:
 
         logger.info(f"Account {account_id} completely purged from database and disk. Stats: {purged_stats}")
         return purged_stats
+
+    def save_encrypted_vault_blob(self, account_id: str, encrypted_b64: str) -> bool:
+        """Persist encrypted session vault directly into database for cold-boot cloud resilience."""
+        with self.get_connection() as conn:
+            conn.execute(
+                "UPDATE accounts SET encrypted_vault_blob = ?, last_active_at = CURRENT_TIMESTAMP WHERE id = ?;",
+                (encrypted_b64, account_id),
+            )
+            return True
+
+    def get_encrypted_vault_blob(self, account_id: str) -> Optional[str]:
+        """Retrieve persisted encrypted session vault blob from database."""
+        with self.get_connection() as conn:
+            cur = conn.execute("SELECT encrypted_vault_blob FROM accounts WHERE id = ?;", (account_id,))
+            row = cur.fetchone()
+            if row and row["encrypted_vault_blob"]:
+                return row["encrypted_vault_blob"]
+            return None
+
+    # ==========================
+    # ATOMIC IDEMPOTENCY LEDGER
+    # ==========================
+
+    def check_and_reserve_event(
+        self, account_id: str, external_event_id: str, idempotency_key: str = ""
+    ) -> bool:
+        """Atomically test-and-reserve an event in the idempotency ledger.
+
+        Returns True if event is NEW and successfully reserved.
+        Returns False if event is a DUPLICATE (already processed).
+        """
+        if not external_event_id:
+            return True
+        key = idempotency_key or f"idem_{account_id}_{external_event_id}"
+        rec_id = str(uuid.uuid4())
+        try:
+            with self.get_connection() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO event_idempotency_ledger (id, account_id, external_event_id, idempotency_key)
+                    VALUES (?, ?, ?, ?);
+                    """,
+                    (rec_id, account_id, external_event_id, key),
+                )
+                return True
+        except sqlite3.IntegrityError:
+            # Already exists for (account_id, external_event_id)
+            logger.info(f"Duplicate event {external_event_id} rejected by idempotency ledger for {account_id}")
+            return False
+
+    def is_event_processed(self, account_id: str, external_event_id: str) -> bool:
+        """Check if an event was already processed without inserting."""
+        with self.get_connection() as conn:
+            cur = conn.execute(
+                "SELECT 1 FROM event_idempotency_ledger WHERE account_id = ? AND external_event_id = ?;",
+                (account_id, external_event_id),
+            )
+            return cur.fetchone() is not None
+
+    def purge_old_idempotency_records(self, hours: int = 72) -> int:
+        """Purge idempotency records older than sliding window."""
+        with self.get_connection() as conn:
+            cur = conn.execute(
+                f"DELETE FROM event_idempotency_ledger WHERE processed_at < datetime('now', '-{hours} hours');"
+            )
+            return cur.rowcount
 
     # ==========================
     # PERSONA MANAGEMENT
