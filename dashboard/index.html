@@ -918,6 +918,13 @@
         const res = await fetch("/api/system/metrics");
         const data = await res.json();
         updateHardwareMetrics(data.rss_mb, data.memory_ceiling_mb);
+        // Evidence-based ingestion status: show restored contexts and
+        // accounts without a session, instead of a bare "active" label.
+        const ing = data.ingestion || {};
+        const st = document.getElementById("ws-status");
+        if (st && ing.tenants_without_session && ing.tenants_without_session.length) {
+          st.textContent = `متصل مباشر — ${ing.tenants_without_session.length} حساب بلا جلسة`;
+        }
       } catch (e) {}
     }
 

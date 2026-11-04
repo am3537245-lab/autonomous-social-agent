@@ -339,11 +339,18 @@ class StealthBrowserManager:
         """Intercept inbound comments, DMs, and post updates directly from raw network payloads."""
         try:
             url = response.url
-            # Meta Business Suite GraphQL Interception
+            # Meta Business Suite GraphQL Interception. Only forward
+            # payloads that actually mention a comment/message/inbox
+            # node, otherwise every page load floods the callback.
             if "graphql" in url and response.status == 200:
                 try:
                     payload = await response.json()
-                    # Check for comment / inbox nodes
+                    payload_text = json.dumps(payload, ensure_ascii=False).lower()
+                    if not any(
+                        token in payload_text
+                        for token in ("comment", "message", "inbox", "thread")
+                    ):
+                        return
                     if self.on_event_callback:
                         event_data = {
                             "account_id": tenant.account_id,

@@ -16,7 +16,9 @@ from typing import Any, Callable, Coroutine, Dict, List, Optional
 import psutil
 
 from core.engine import StealthBrowserManager, TenantContext
+from core.ingestion import classify_inbound_text
 from core.llm import AgentDecision, GeminiOrchestrator
+from core.post_context import resolve_post_context
 from core.storage import StorageEngine
 from core.stream import compute_image_hashes, compress_image_to_webp, purge_buffers
 
@@ -132,6 +134,12 @@ class AutonomousWorker:
                 await self._handle_inbound_interaction(account_id, payload)
             elif task_type == "INDEX_POST":
                 await self._handle_index_post(account_id, payload)
+            elif task_type == "PUBLISH_REPLY":
+                await self._handle_publish_reply(account_id, payload)
+            else:
+                # Unknown task types must NOT be silently marked done:
+                # that hid the old PUBLISH_REPLY failure for months.
+                raise ValueError(f"Unsupported task_type: {task_type}")
             self.storage.mark_task_done(task_id)
         except Exception as e:
             logger.error(f"Task {task_id} failed: {e}", exc_info=True)
@@ -192,19 +200,56 @@ class AutonomousWorker:
             return
 
         # ----------------------------------------------------
-        # STAGE 2: MULTIMODAL CONTEXT ASSEMBLY & PHASH MATCHING
+        # STAGE 1b: ABUSE / CRITICISM CLASSIFICATION (NO LLM NEEDED)
+        # Abuse (insult/threat/hate) is hidden immediately and logged;
+        # civil criticism is NOT hidden -- it is flagged below so the
+        # LLM/human path escalates it instead of burying a real complaint.
         # ----------------------------------------------------
-        cached_post = None
-        if post_id:
-            cached_post = self.storage.get_post_by_external_id(account_id, post_id)
-            if not cached_post and self.jit_oracle:
-                logger.info(f"Unindexed post {post_id} received interaction. Invoking Reactive JIT Ingestion Oracle.")
-                cached_post = await self.jit_oracle.ingest_post_jit(
-                    account_id=account_id,
-                    external_post_id=post_id,
-                    mock_caption=payload.get("parent_caption"),
-                    mock_media_bytes=payload.get("parent_media_bytes"),
-                )
+        classification = classify_inbound_text(inbound_text)
+        if classification["level"] == "abuse":
+            await self._execute_moderation_action(
+                account_id, interaction_type, "HIDE", payload
+            )
+            self.storage.log_interaction(
+                account_id=account_id,
+                external_event_id=external_event_id,
+                thread_id=thread_id,
+                post_id=post_id,
+                sender_name=sender_name,
+                interaction_type=interaction_type,
+                inbound_text=inbound_text,
+                agent_action="HIDE",
+                agent_response=f"[Abuse] {classification['reason']}",
+                confidence=1.0,
+            )
+            if self.on_event_broadcast:
+                await self.on_event_broadcast({
+                    "type": "RADAR_ACTION",
+                    "account_id": account_id,
+                    "action": "HIDE",
+                    "reason": classification["reason"],
+                    "inbound_text": inbound_text,
+                    "sender": sender_name,
+                    "latency_ms": int((time.monotonic() - start_time) * 1000),
+                })
+            return
+
+        # ----------------------------------------------------
+        # STAGE 2: POST CONTEXT ASSEMBLY & PHASH MATCHING
+        # The post a comment/DM refers to is resolved from the local
+        # cache only. If it is not indexed, cached_post stays None and
+        # no caption, price, or product is invented for it (the old
+        # JIT path used a mock caption, which fabricated post content).
+        # ----------------------------------------------------
+        post_context = resolve_post_context(
+            self.storage, account_id, payload
+        )
+        cached_post = post_context["post"]
+        if post_id and not post_context["found"]:
+            logger.info(
+                f"Post {post_id} not indexed for {account_id}; "
+                "answering without post context instead of inventing one."
+            )
 
         # Perceptual hash matching for inbound customer screenshots/images
         matched_by_hash = False
@@ -241,6 +286,14 @@ class AutonomousWorker:
             customer_media_mime="image/webp",
         )
 
+        # Civil criticism must not be silently ignored or hidden: if the
+        # model did not choose a reply, escalate it for a human.
+        if classification["level"] == "critical" and decision.decision != "REPLY":
+            decision.decision = "HUMAN_HANDOFF"
+            decision.moderation_reason = (
+                "Civil criticism/complaint: escalated for human reply, not hidden."
+            )
+
         # Clean in-memory buffers
         purge_buffers(inbound_image_bytes, compressed_media)
 
@@ -267,7 +320,10 @@ class AutonomousWorker:
             interaction_type=interaction_type,
             inbound_text=inbound_text,
             inbound_media_type="image" if inbound_image_bytes else "none",
-            inbound_media_analysis=decision.understood_context,
+            inbound_media_analysis=(
+                ("[Post not indexed] " if not post_context["found"] else "")
+                + (decision.understood_context or "")
+            ),
             agent_action=decision.decision,
             agent_response=response_text or decision.moderation_reason or "",
             confidence=decision.confidence,
@@ -325,6 +381,42 @@ class AutonomousWorker:
         purge_buffers(media_bytes, compressed_media)
         logger.info(f"Post {post_id} permanently indexed for account {account_id}.")
 
+    async def _handle_publish_reply(self, account_id: str, payload: Dict[str, Any]) -> None:
+        """Execute a queued reply (e.g. the webhook fallback rail).
+
+        Previously this task type was popped and marked DONE without any
+        execution. Now a missing browser context is a real failure, so the
+        task is marked FAILED by process_task instead of disappearing.
+        """
+        reply_text = payload.get("reply_text") or ""
+        if not reply_text:
+            raise ValueError("PUBLISH_REPLY task has no reply_text")
+        tenant = self.browser_manager.contexts.get(account_id)
+        if not tenant or not tenant.active_page:
+            raise RuntimeError(
+                "PUBLISH_REPLY cannot execute: no active browser context for account"
+            )
+        # Reuse the DOM reply path with a REPLY decision.
+        await self._execute_interaction_action(
+            account_id,
+            payload.get("interaction_type", "comment"),
+            "REPLY",
+            reply_text,
+            payload,
+        )
+        self.storage.log_interaction(
+            account_id=account_id,
+            external_event_id=payload.get("comment_id") or f"evt_{int(time.time()*1000)}",
+            thread_id=payload.get("thread_id", ""),
+            post_id=payload.get("post_id", ""),
+            sender_name="",
+            interaction_type=payload.get("interaction_type", "comment"),
+            inbound_text="",
+            agent_action="REPLY",
+            agent_response=reply_text,
+            confidence=1.0,
+        )
+
     async def _execute_moderation_action(
         self, account_id: str, interaction_type: str, action: str, payload: Dict[str, Any]
     ) -> None:
@@ -361,7 +453,17 @@ class AutonomousWorker:
         response_text: Optional[str],
         payload: Dict[str, Any],
     ) -> None:
-        """Type and send humanized reply into DOM."""
+        """Type and send humanized reply into DOM, or execute moderation.
+
+        Previously HIDE/DELETE decisions from the LLM were logged but
+        never executed, because this method returned early for any
+        non-REPLY decision. Moderation now actually runs.
+        """
+        if decision in ("HIDE", "DELETE"):
+            await self._execute_moderation_action(
+                account_id, interaction_type, decision, payload
+            )
+            return
         if decision != "REPLY" or not response_text:
             return
 

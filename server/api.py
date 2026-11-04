@@ -16,8 +16,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
-from core.engine import StealthBrowserManager
+from core.engine import StealthBrowserManager, TenantContext
 from core.ingress import IngressManager
+from core.ingestion import (
+    extract_inbound_events_from_network_payload,
+    parse_meta_messaging_payload,
+)
 from core.llm import AgentDecision, GeminiOrchestrator, load_env_file
 from core.storage import StorageEngine
 from core.stream import compute_image_hashes, compress_image_to_webp
@@ -56,6 +60,122 @@ ingress_manager = IngressManager(port=8000, remote=False)
 worker: Optional[AutonomousWorker] = None
 worker_task: Optional[asyncio.Task] = None
 active_websockets: List[WebSocket] = []
+
+# Ingestion health: what the dashboard used to claim as "active" with no
+# evidence. Every field here is either a timestamp, a count, or an error
+# string -- never a claim that a session is healthy without a check.
+INGESTION_HEALTH: Dict[str, Any] = {
+    "last_restore_at": None,
+    "last_event_at": None,
+    "last_event_error": None,
+    "events_received": 0,
+    "tenants_restored": [],
+    "tenants_without_session": [],
+}
+
+
+def _business_suite_inbox_url(account: Dict[str, Any]) -> str:
+    business_id = account.get("business_id") or ""
+    page_id = account.get("page_id") or ""
+    if business_id and page_id:
+        return (
+            "https://business.facebook.com/latest/inbox/"
+            f"?asset_id={page_id}&business_id={business_id}"
+        )
+    return account.get("profile_url") or ""
+
+
+async def _handle_network_event(event_data: Dict[str, Any]) -> None:
+    """Route a Stealth browser network event into the worker queue.
+
+    This was the missing wire: engine._handle_network_response fired
+    on_event_callback, but nothing in production ever set that callback,
+    so intercepted comments/DMs vanished. Now each extracted event is
+    de-duplicated and enqueued as INBOUND_INTERACTION.
+    """
+    account_id = event_data.get("account_id", "")
+    try:
+        events = extract_inbound_events_from_network_payload(
+            event_data.get("raw_payload"), account_id
+        )
+    except Exception as exc:  # parsing must never kill the browser loop
+        INGESTION_HEALTH["last_event_error"] = f"network_parse_error: {exc}"
+        return
+    for event in events:
+        if not storage.check_and_reserve_event(
+            account_id=account_id,
+            external_event_id=event["event_id"],
+            idempotency_key=f"stealth_{event['event_id']}",
+        ):
+            continue
+        storage.enqueue_task(
+            account_id=account_id,
+            task_type="INBOUND_INTERACTION",
+            payload=event,
+            priority=10,
+        )
+        INGESTION_HEALTH["events_received"] += 1
+        INGESTION_HEALTH["last_event_at"] = time.time()
+        await broadcast_radar_event(
+            {
+                "type": "RADAR_ACTION",
+                "account_id": account_id,
+                "action": "QUEUED",
+                "inbound_text": event["text"],
+                "sender": event["sender_name"],
+                "interaction_type": event["interaction_type"],
+                "post_id": event["post_id"],
+            }
+        )
+
+
+async def _restore_tenant_sessions() -> None:
+    """Restore saved browser sessions and open the Business Suite inbox.
+
+    For every account that actually has a saved session vault, create a
+    tenant browser context (which loads and decrypts that vault) and
+    navigate its page to the inbox. Accounts without a vault are recorded
+    in INGESTION_HEALTH instead of being shown as "active" -- an empty
+    cookie field cannot fetch anything, and pretending otherwise was
+    the original silent-failure mode.
+    """
+    browser_manager.on_event_callback = _handle_network_event
+    restored: List[str] = []
+    without_session: List[str] = []
+    for account in storage.list_accounts():
+        account_id = account.get("id", "")
+        if not account_id:
+            continue
+        # Canonical account is the one startup provisions; legacy URL
+        # accounts are aliases of the same page and are NOT restored
+        # separately (that would open two contexts for one inbox).
+        if _resolve_account_id(account_id) != account_id and account_id.startswith("http"):
+            continue
+        try:
+            probe = TenantContext(account_id, account.get("platform", "meta"), {})
+            if not probe.has_saved_session():
+                without_session.append(account_id)
+                continue
+            tenant = await browser_manager.create_tenant_context(
+                account_id, account.get("platform", "meta"),
+                proxy_url=account.get("proxy_url") or "",
+            )
+            inbox_url = _business_suite_inbox_url(account)
+            if tenant.active_page and inbox_url:
+                try:
+                    await tenant.active_page.goto(inbox_url, timeout=45000)
+                except Exception as nav_err:
+                    INGESTION_HEALTH["last_event_error"] = (
+                        f"inbox_navigation_failed:{account_id}:{nav_err}"
+                    )
+                    logger.warning(f"Inbox navigation failed for {account_id}: {nav_err}")
+            restored.append(account_id)
+        except Exception as exc:
+            INGESTION_HEALTH["last_event_error"] = f"restore_failed:{account_id}:{exc}"
+            logger.warning(f"Tenant restore failed for {account_id}: {exc}")
+    INGESTION_HEALTH["tenants_restored"] = restored
+    INGESTION_HEALTH["tenants_without_session"] = without_session
+    INGESTION_HEALTH["last_restore_at"] = time.time()
 
 
 async def broadcast_radar_event(event: Dict[str, Any]) -> None:
@@ -105,12 +225,16 @@ async def startup_event() -> None:
     worker_task = asyncio.create_task(worker.start())
     logger.info("Background worker loop successfully launched.")
 
-    # Auto-provision normalized Dazaa Marketing account and purge any legacy raw URLs
+    # Auto-provision normalized Dazaa Marketing account. Legacy URL
+    # accounts are NOT purged here: the old code deleted every account
+    # whose id contained "facebook.com" on every startup, which destroys
+    # user accounts, personas, and post caches on restart. Aliases are
+    # handled by _resolve_account_id and by _restore_tenant_sessions
+    # (canonical context only), and deletion stays a dashboard action.
     try:
         for a in storage.list_accounts():
             if "facebook.com" in a.get("id", ""):
-                logger.info(f"Purging legacy URL account: {a['id']}")
-                storage.purge_account_data(a["id"])
+                logger.info(f"Legacy URL alias present (kept, not purged): {a['id']}")
 
         if not storage.get_account("act_1071349136056783"):
             logger.info("Provisioning normalized act_1071349136056783 on startup...")
@@ -132,6 +256,15 @@ async def startup_event() -> None:
                 logger.warning(f"Startup harvest note: {he}")
     except Exception as se:
         logger.warning(f"Startup account provisioning note: {se}")
+
+    # Wire the Stealth ingestion rail: restore saved sessions, open the
+    # Business Suite inbox, and connect network interception to the
+    # worker queue. Without this call, ingestion was dead in production.
+    try:
+        await _restore_tenant_sessions()
+    except Exception as restore_err:
+        INGESTION_HEALTH["last_event_error"] = f"restore_error: {restore_err}"
+        logger.warning(f"Tenant session restore note: {restore_err}")
 
 
 @app.on_event("shutdown")
@@ -469,6 +602,10 @@ def add_saved_reply(account_id: str, req: SavedReplyCreateRequest) -> Dict[str, 
 
 @app.get("/api/accounts/{account_id:path}/logs")
 def get_logs(account_id: str, limit: int = 50) -> List[Dict[str, Any]]:
+    # The dashboard requests /api/accounts/all/logs; the old code resolved
+    # "all" to itself and returned an empty list for that view.
+    if account_id == "all":
+        return storage.get_recent_logs(None, limit=limit)
     account_id = _resolve_account_id(account_id)
     return storage.get_recent_logs(account_id, limit=limit)
 
@@ -484,6 +621,22 @@ def get_system_metrics() -> Dict[str, Any]:
         "cpu_percent": process.cpu_percent(interval=0.1),
         "active_contexts": len(browser_manager.contexts),
         "total_accounts": len(storage.list_accounts()),
+        "ingestion": dict(INGESTION_HEALTH),
+    }
+
+
+@app.get("/api/ingestion/health")
+def get_ingestion_health() -> Dict[str, Any]:
+    """Evidence-based ingestion status (no 'active' claim without a check).
+
+    tenants_restored: contexts actually opened; tenants_without_session:
+    accounts with no saved vault, which cannot fetch anything until a
+    session is imported through the dashboard on the owner's device.
+    """
+    return {
+        "active_contexts": len(browser_manager.contexts),
+        "active_context_ids": list(browser_manager.contexts.keys()),
+        **INGESTION_HEALTH,
     }
 
 
@@ -767,6 +920,37 @@ async def meta_webhook_receiver(request: Request) -> Dict[str, Any]:
     entries = payload.get("entry", [])
     processed_events = []
     ignored_duplicates = 0
+
+    # 2b. Messaging events (Messenger DMs). Previously the receiver only
+    # handled feed comments, so a real Messenger message arriving over
+    # the webhook was silently dropped. DMs are enqueued for the worker,
+    # which logs them after deciding/replying; they are not invented
+    # here. This branch only activates when a Meta app + secrets are
+    # configured -- the Stealth browser rail remains the no-API path.
+    for dm_event in parse_meta_messaging_payload(payload, _resolve_account_id):
+        if not storage.check_and_reserve_event(
+            account_id=dm_event["account_id"],
+            external_event_id=dm_event["event_id"],
+            idempotency_key=f"meta_dm_{dm_event['event_id']}",
+        ):
+            ignored_duplicates += 1
+            continue
+        storage.enqueue_task(
+            account_id=dm_event["account_id"],
+            task_type="INBOUND_INTERACTION",
+            payload=dm_event,
+            priority=10,
+        )
+        INGESTION_HEALTH["events_received"] += 1
+        INGESTION_HEALTH["last_event_at"] = time.time()
+        processed_events.append(
+            {
+                "event_id": dm_event["event_id"],
+                "dispatched_via": "STEALTH_QUEUE",
+                "reply": "",
+                "action": "QUEUED_DM",
+            }
+        )
 
     for entry in entries:
         page_asset_id = str(entry.get("id", ""))
