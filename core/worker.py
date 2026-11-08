@@ -17,6 +17,7 @@ import psutil
 
 from core.engine import StealthBrowserManager, TenantContext
 from core.llm import AgentDecision, GeminiOrchestrator
+from core.meta_client import MetaSessionClient
 from core.storage import StorageEngine
 from core.stream import compute_image_hashes, compress_image_to_webp, purge_buffers
 
@@ -82,14 +83,17 @@ class AutonomousWorker:
         self.on_event_broadcast = on_event_broadcast
         self.simulate_delay = simulate_delay
         self.jit_oracle = jit_oracle
+        self.meta_client = MetaSessionClient(storage=self.storage, browser_manager=self.browser_manager)
         self.is_running = False
         self.tasks_processed = 0
         self.memory_ceiling_mb = 1000.0  # 1.0 GB ceiling
+        self._last_poll_ts = 0.0
+        self.poll_interval_seconds = 35.0
 
     async def start(self) -> None:
-        """Start the background autonomous polling loop."""
+        """Start the background autonomous polling loop and live Meta comment poller."""
         self.is_running = True
-        logger.info("Autonomous Worker started with Poisson dispatching.")
+        logger.info("Autonomous Worker started with Poisson dispatching and 24/7 Meta Session Poller.")
         while self.is_running:
             try:
                 task = self.storage.pop_next_task()
@@ -101,10 +105,62 @@ class AutonomousWorker:
                     if self.tasks_processed % 10 == 0:
                         await self.run_memory_governance_pass()
                 else:
+                    now = time.monotonic()
+                    if now - self._last_poll_ts >= self.poll_interval_seconds:
+                        self._last_poll_ts = now + random.uniform(-4.0, 6.0)
+                        await self.poll_active_meta_accounts()
                     await asyncio.sleep(1.0)
             except Exception as e:
                 logger.error(f"Worker iteration error: {e}", exc_info=True)
                 await asyncio.sleep(2.0)
+
+    async def poll_active_meta_accounts(self) -> int:
+        """Poll all active Meta accounts via MetaSessionClient for new posts and comments."""
+        enqueued_count = 0
+        for acc in self.storage.list_accounts():
+            if acc.get("platform") != "meta" or acc.get("session_status") != "active":
+                continue
+            acc_id = acc["id"]
+            try:
+                posts, comments = await asyncio.to_thread(
+                    self.meta_client.fetch_real_posts_and_comments_sync, acc_id
+                )
+                # Ensure real posts are cached
+                for p in posts:
+                    existing = self.storage.get_post_by_external_id(acc_id, p["external_post_id"])
+                    if not existing:
+                        await self.meta_client.sync_real_posts_to_storage(acc_id)
+                        break
+
+                # Check comments against atomic idempotency ledger
+                for c in comments:
+                    cid = c["comment_id"]
+                    is_new = self.storage.check_and_reserve_event(
+                        account_id=acc_id,
+                        external_event_id=cid,
+                        idempotency_key=f"meta_poll_{cid}",
+                    )
+                    if is_new:
+                        self.storage.enqueue_task(
+                            account_id=acc_id,
+                            task_type="INBOUND_INTERACTION",
+                            payload={
+                                "event_id": cid,
+                                "comment_id": cid,
+                                "interaction_type": "comment",
+                                "text": c.get("inbound_text", ""),
+                                "sender_name": c.get("sender_name", "Customer"),
+                                "sender_id": c.get("sender_id", ""),
+                                "post_id": c.get("post_id", ""),
+                                "parent_feedback_id": c.get("parent_feedback_id", ""),
+                                "target_url": c.get("target_url", ""),
+                            },
+                            priority=2,
+                        )
+                        enqueued_count += 1
+            except Exception as pe:
+                logger.warning(f"Polling note for {acc_id}: {pe}")
+        return enqueued_count
 
     def stop(self) -> None:
         self.is_running = False
@@ -132,10 +188,31 @@ class AutonomousWorker:
                 await self._handle_inbound_interaction(account_id, payload)
             elif task_type == "INDEX_POST":
                 await self._handle_index_post(account_id, payload)
+            elif task_type == "PUBLISH_REPLY":
+                await self._handle_publish_reply(account_id, payload)
             self.storage.mark_task_done(task_id)
         except Exception as e:
             logger.error(f"Task {task_id} failed: {e}", exc_info=True)
             self.storage.mark_task_failed(task_id, str(e))
+
+    async def _handle_publish_reply(self, account_id: str, payload: Dict[str, Any]) -> None:
+        """Execute outbound comment/DM reply via MetaSessionClient or Stealth DOM."""
+        comment_id = payload.get("comment_id", "")
+        reply_text = payload.get("reply_text", "")
+        post_id = payload.get("post_id", "")
+        parent_feedback_id = payload.get("parent_feedback_id", "")
+        target_url = payload.get("target_url", "")
+        if not reply_text:
+            return
+        res = await self.meta_client.publish_reply(
+            account_id=account_id,
+            comment_id=comment_id,
+            reply_text=reply_text,
+            post_id=post_id,
+            parent_feedback_id=parent_feedback_id,
+            target_url=target_url,
+        )
+        logger.info(f"PUBLISH_REPLY executed for {account_id} (comment={comment_id}): {res}")
 
     async def _handle_inbound_interaction(self, account_id: str, payload: Dict[str, Any]) -> None:
         """Execute the 3-Stage Decision & Action pipeline for an incoming comment or DM."""
@@ -361,8 +438,24 @@ class AutonomousWorker:
         response_text: Optional[str],
         payload: Dict[str, Any],
     ) -> None:
-        """Type and send humanized reply into DOM."""
-        if decision != "REPLY" or not response_text:
+        """Publish reply via MetaSessionClient (GraphQL + i_user) or fallback to DOM."""
+        if decision not in ("REPLY", "HUMAN_HANDOFF") or not response_text:
+            return
+
+        comment_id = payload.get("comment_id") or payload.get("event_id", "")
+        post_id = payload.get("post_id", "")
+        parent_feedback_id = payload.get("parent_feedback_id", "")
+        target_url = payload.get("target_url", "")
+
+        if comment_id and parent_feedback_id:
+            await self.meta_client.publish_reply(
+                account_id=account_id,
+                comment_id=comment_id,
+                reply_text=response_text,
+                post_id=post_id,
+                parent_feedback_id=parent_feedback_id,
+                target_url=target_url,
+            )
             return
 
         tenant = self.browser_manager.contexts.get(account_id)

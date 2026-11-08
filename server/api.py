@@ -16,9 +16,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
+from core.cloud_sync import CloudStateSynchronizer
+from core.crawler import PublicPageHarvester
 from core.engine import StealthBrowserManager
 from core.ingress import IngressManager
 from core.llm import AgentDecision, GeminiOrchestrator, load_env_file
+from core.meta_client import MetaSessionClient
 from core.storage import StorageEngine
 from core.stream import compute_image_hashes, compress_image_to_webp
 from core.verifier import ActiveAssociationOracle, DualPerspectiveVerifier
@@ -52,6 +55,8 @@ browser_manager = StealthBrowserManager(headless=True)
 push_gateway = WebPushGateway(storage=storage)
 oracle = ActiveAssociationOracle(storage=storage, browser_manager=browser_manager)
 ghost_verifier = DualPerspectiveVerifier(browser_manager=browser_manager)
+meta_client = MetaSessionClient(storage=storage, browser_manager=browser_manager)
+cloud_sync = CloudStateSynchronizer(storage=storage)
 ingress_manager = IngressManager(port=8000, remote=False)
 worker: Optional[AutonomousWorker] = None
 worker_task: Optional[asyncio.Task] = None
@@ -105,12 +110,15 @@ async def startup_event() -> None:
     worker_task = asyncio.create_task(worker.start())
     logger.info("Background worker loop successfully launched.")
 
-    # Auto-provision normalized Dazaa Marketing account and purge any legacy raw URLs
+    # Auto-provision normalized Dazaa Marketing account and purge any legacy raw URLs or fake posts
     try:
         for a in storage.list_accounts():
             if "facebook.com" in a.get("id", ""):
                 logger.info(f"Purging legacy URL account: {a['id']}")
                 storage.purge_account_data(a["id"])
+
+        # Rehydrate from CLOUD_VAULT_BUNDLE if present on cold-boot
+        cloud_sync.rehydrate_from_bundle()
 
         if not storage.get_account("act_1071349136056783"):
             logger.info("Provisioning normalized act_1071349136056783 on startup...")
@@ -125,11 +133,10 @@ async def startup_event() -> None:
                 dialect="Fusha_Colloquial",
                 tone_of_voice="friendly",
             )
-            try:
-                from core.crawler import PublicPageHarvester
-                PublicPageHarvester(storage=storage).harvest_sync("act_1071349136056783")
-            except Exception as he:
-                logger.warning(f"Startup harvest note: {he}")
+
+        harvester = PublicPageHarvester(storage=storage, orchestrator=orchestrator, browser_manager=browser_manager)
+        harvester.purge_legacy_fake_posts("act_1071349136056783")
+        await harvester.harvest_public_profile("act_1071349136056783")
     except Exception as se:
         logger.warning(f"Startup account provisioning note: {se}")
 
@@ -400,6 +407,13 @@ async def import_account_session(account_id: str, req: AccountSessionImportReque
     tenant.save_encrypted_state(state)
     storage.update_account_status(account_id, "active")
 
+    # Sync real posts and optionally sync encrypted bundle to cloud env
+    try:
+        await meta_client.sync_real_posts_to_storage(account_id)
+        await asyncio.to_thread(cloud_sync.push_to_render_env, account_id)
+    except Exception as sync_err:
+        logger.debug(f"Post-import sync note: {sync_err}")
+
     await broadcast_radar_event({
         "type": "ACCOUNT_UPDATED",
         "account_id": account_id,
@@ -410,6 +424,50 @@ async def import_account_session(account_id: str, req: AccountSessionImportReque
         "status": "session_imported",
         "account_id": account_id,
         "cookies_count": len(state.get("cookies", [])),
+    }
+
+
+@app.get("/api/accounts/{account_id:path}/live-check")
+async def live_check_account(account_id: str) -> Dict[str, Any]:
+    """Perform an immediate truthful live check against Meta servers (`fb_dtsg`, `actor_id`, real posts & comments)."""
+    account_id = _resolve_account_id(account_id)
+    probe = await meta_client.probe_live_session(account_id)
+    real_posts, real_comments = await asyncio.to_thread(
+        meta_client.fetch_real_posts_and_comments_sync, account_id
+    )
+    return {
+        "account_id": account_id,
+        "session_valid": probe.get("session_valid", False),
+        "health_status": probe.get("health_status", "DISCONNECTED"),
+        "page_name": probe.get("page_name", "Dazaa Marketing"),
+        "page_id": probe.get("page_id", "1071349136056783"),
+        "business_id": probe.get("business_id", "766871999177306"),
+        "actor_id": probe.get("actor_id", ""),
+        "i_user": probe.get("i_user", ""),
+        "c_user": probe.get("c_user", ""),
+        "fb_dtsg_present": probe.get("fb_dtsg_present", False),
+        "fb_dtsg_preview": probe.get("fb_dtsg_preview", ""),
+        "inbox_verified": probe.get("inbox_verified", False),
+        "instagram_linked": probe.get("instagram_linked", False),
+        "instagram_business_account_id": probe.get("instagram_business_account_id", ""),
+        "real_posts_count": len(real_posts),
+        "real_posts": real_posts,
+        "real_comments_count": len(real_comments),
+        "real_comments": real_comments,
+    }
+
+
+@app.post("/api/accounts/{account_id:path}/poll-now")
+async def trigger_manual_poll(account_id: str) -> Dict[str, Any]:
+    """Trigger an immediate poll of real Facebook Page posts and comments from mobile dashboard."""
+    account_id = _resolve_account_id(account_id)
+    synced_posts = await meta_client.sync_real_posts_to_storage(account_id)
+    enqueued = await worker.poll_active_meta_accounts() if worker else 0
+    return {
+        "status": "polled",
+        "account_id": account_id,
+        "real_posts_synced": len(synced_posts),
+        "new_comments_enqueued": enqueued,
     }
 
 
@@ -495,11 +553,11 @@ def get_system_metrics() -> Dict[str, Any]:
 @app.post("/api/sandbox/simulate")
 def simulate_interaction(req: SandboxSimulateRequest) -> Dict[str, Any]:
     start_time = time.monotonic()
-    account_id = req.account_id
+    account_id = _resolve_account_id(req.account_id)
     persona = storage.get_persona(account_id) or {
-        "system_prompt": "خدمة عملاء ودودة واحترافية",
+        "system_prompt": "خدمة عملاء ودودة واحترافية بالعامية الفصحى الميسرة",
         "tone_of_voice": "friendly",
-        "dialect": "Egyptian",
+        "dialect": "Fusha_Colloquial",
     }
 
     # 1. Zero-Cost Shield Check
@@ -701,6 +759,16 @@ def health_check() -> Dict[str, Any]:
     }
 
 
+@app.get("/api/health/pulse")
+def health_pulse() -> Dict[str, Any]:
+    """Ultra-lightweight keep-alive heartbeat endpoint for 24/7 cloud uptime monitors."""
+    return {
+        "alive": True,
+        "ts": int(time.time()),
+        "uptime_s": int(time.time() - START_TIME),
+    }
+
+
 @app.get("/api/ingress/status")
 def get_ingress_status() -> Dict[str, Any]:
     url = ingress_manager.public_url or ingress_manager.local_url
@@ -715,9 +783,12 @@ def get_ingress_status() -> Dict[str, Any]:
 # META OFFICIAL EVENT-DRIVEN WEBHOOK (PRIMARY DUAL-RAIL INGRESS)
 # =======================================================
 
-META_VERIFY_TOKEN = os.environ.get("META_VERIFY_TOKEN", "dazaa_secret_verify_token_2026")
-META_APP_SECRET = os.environ.get("META_APP_SECRET", "dazaa_app_secret_super_2026")
+import secrets
+
+META_VERIFY_TOKEN = os.environ.get("META_VERIFY_TOKEN") or secrets.token_hex(16)
+META_APP_SECRET = os.environ.get("META_APP_SECRET") or secrets.token_hex(32)
 META_PAGE_ACCESS_TOKEN = os.environ.get("META_PAGE_ACCESS_TOKEN", "")
+DASHBOARD_PIN = os.environ.get("DASHBOARD_PIN", "")
 
 
 @app.get("/api/webhooks/meta")

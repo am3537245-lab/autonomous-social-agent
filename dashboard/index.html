@@ -263,10 +263,16 @@
               </h2>
               <p class="fluid-sub text-gray-400 mt-0.5">المعالجة العصبية الذاتية واستجابات الدرع الواقي للرسائل والتعليقات</p>
             </div>
-            <button onclick="loadRadarLogs()" class="touch-target self-start xs:self-auto flex items-center gap-1.5 text-xs text-gray-300 hover:text-white bg-gray-800 hover:bg-gray-700 px-3 py-1.5 rounded-lg border border-gray-700 transition-all shrink-0">
-              <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
-              <span>تحديث السجل</span>
-            </button>
+            <div class="flex items-center gap-2 self-start xs:self-auto shrink-0">
+              <button onclick="pollMetaNow()" class="touch-target flex items-center gap-1.5 text-xs text-emerald-300 hover:text-white bg-emerald-950/50 hover:bg-emerald-900/60 px-3 py-1.5 rounded-lg border border-emerald-600/40 transition-all shrink-0">
+                <i data-lucide="zap" class="w-3.5 h-3.5 text-emerald-400"></i>
+                <span>سحب التعليقات الآن</span>
+              </button>
+              <button onclick="loadRadarLogs()" class="touch-target flex items-center gap-1.5 text-xs text-gray-300 hover:text-white bg-gray-800 hover:bg-gray-700 px-3 py-1.5 rounded-lg border border-gray-700 transition-all shrink-0">
+                <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+                <span>تحديث السجل</span>
+              </button>
+            </div>
           </div>
 
           <!-- Radar Stat Cards Grid: 2-Cols on Mobile / 4-Cols on Desktop -->
@@ -414,7 +420,7 @@
 
               <div>
                 <label class="block text-xs font-semibold text-gray-400 mb-1.5">نص العميل الوارد</label>
-                <textarea id="sandbox-text" rows="3" placeholder="مثال: بكام ده وفيه شحن للإسكندرية؟ أو جرّب كلمة بذيئة لاختبار الدرع الواقي" class="w-full bg-gray-900 border border-gray-700 rounded-lg p-2.5 text-[16px] sm:text-xs text-white focus:outline-none focus:border-indigo-500"></textarea>
+                <textarea id="sandbox-text" rows="3" placeholder="مثال: كم سعر الباقة وهل يتوفر التوصيل؟ أو جرّب كلمة مسيئة لاختبار الدرع الواقي" class="w-full bg-gray-900 border border-gray-700 rounded-lg p-2.5 text-[16px] sm:text-xs text-white focus:outline-none focus:border-indigo-500"></textarea>
               </div>
 
               <div>
@@ -1706,9 +1712,23 @@
     // ==========================================
     // PAGE ASSOCIATION & SCOPE ORACLE
     // ==========================================
+    async function pollMetaNow() {
+      if (navigator.vibrate) navigator.vibrate(25);
+      const targetId = activeAccountId || "act_1071349136056783";
+      try {
+        const res = await fetch(`/api/accounts/${encodeURIComponent(targetId)}/poll-now`, { method: 'POST' });
+        const data = await res.json();
+        loadPosts(targetId);
+        setTimeout(() => loadRadarLogs(targetId), 1500);
+        alert(`✓ تم فحص صفحة الفيسبوك مباشرة!\nالمنشورات الحقيقية المتزامنة: ${data.real_posts_synced}\nالتعليقات الجديدة قيد المعالجة: ${data.new_comments_enqueued}`);
+      } catch (e) {
+        alert("تعذر سحب التعليقات: " + e.message);
+      }
+    }
+
     async function verifyActivePageScopes() {
       if (navigator.vibrate) navigator.vibrate(30);
-      if (!activeAccountId) return alert("اختر صفحة أولاً");
+      const targetId = activeAccountId || "act_1071349136056783";
       const indicator = document.getElementById("oracle-indicator");
       const text = document.getElementById("oracle-status-text");
 
@@ -1716,17 +1736,25 @@
       if (indicator) indicator.className = "w-2.5 h-2.5 rounded-full bg-amber-400 animate-spin shrink-0";
 
       try {
-        const res = await fetch(`/api/accounts/${activeAccountId}/verify-connection`, { method: 'POST' });
+        const res = await fetch(`/api/accounts/${encodeURIComponent(targetId)}/live-check`);
         const data = await res.json();
 
         if (data.session_valid && data.health_status === "ACTIVE") {
           if (indicator) indicator.className = "w-2.5 h-2.5 rounded-full bg-emerald-400 shrink-0";
           if (text) text.textContent = `مرتبط: ${data.page_name} ✓`;
-          alert(`✓ تم التحقق بنجاح من الارتباط المباشر بالصفحة!\nالمعرف: ${data.page_id}\nالصلاحيات: الرد على التعليقات، إرسال الرسائل (مفعلة 100%)`);
+          alert(
+            `✓ اتصال حقيقي مباشر مع خوادم فيسبوك (بدون تطبيق ميتا)!\n` +
+            `• الصفحة: ${data.page_name}\n` +
+            `• هوية الفاعل (i_user): ${data.actor_id}\n` +
+            `• رمز الأمان (fb_dtsg): ${data.fb_dtsg_preview}\n` +
+            `• المنشورات الحقيقية المرصودة: ${data.real_posts_count}\n` +
+            `• التعليقات الحقيقية المرصودة: ${data.real_comments_count}\n` +
+            `• إنستغرام مرتبط: ${data.instagram_linked ? data.instagram_business_account_id : 'غير مرتبط حالياً'}`
+          );
         } else {
           if (indicator) indicator.className = "w-2.5 h-2.5 rounded-full bg-rose-400 shrink-0";
           if (text) text.textContent = `تدخل مطلوب (${data.health_status})`;
-          alert(`⚠️ تنبيه: الحساب غير نشط حالياً أو يحتاج لتسجيل الدخول مجدداً.\nالسبب: ${JSON.stringify(data.details)}`);
+          alert(`⚠️ تنبيه: الجلسة غير نشطة حالياً أو تحتاج لتحديث الكوكيز.\nالحالة: ${data.health_status}`);
         }
       } catch (e) {
         if (indicator) indicator.className = "w-2.5 h-2.5 rounded-full bg-rose-400 shrink-0";

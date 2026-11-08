@@ -42,6 +42,70 @@ def load_env_file(filepath: Optional[str] = None) -> None:
 # Automatically load .env on import
 load_env_file()
 
+ARABIC_DIGIT_MAP = str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789")
+
+
+def _extract_numeric_tokens(text: str) -> List[str]:
+    """Normalize Arabic-Indic digits and extract numeric price/number tokens."""
+    if not text:
+        return []
+    normalized = text.translate(ARABIC_DIGIT_MAP)
+    return re.findall(r"\b\d+(?:[.,]\d+)?\b", normalized)
+
+
+def validate_reply_price_grounding(
+    reply_text: str,
+    cached_post_digest: Optional[Dict[str, Any]] = None,
+    matched_saved_reply: Optional[Dict[str, Any]] = None,
+    all_saved_replies: Optional[List[Dict[str, Any]]] = None,
+) -> Tuple[bool, str, List[str]]:
+    """Verify that every number/price mentioned in reply_text is grounded in real post context or saved replies.
+
+    Returns (is_grounded, sanitized_reply_text, ungrounded_numbers).
+    If any number is hallucinated, replaces the reply with a polite Fusha_Colloquial handoff message.
+    """
+    if not reply_text:
+        return True, "", []
+
+    # Strip any forbidden regional slang
+    cleaned_reply = re.sub(r"يا\s*فندم|بكام\s*ده|عامل\s*كام|البيج|حضرتك\s*يا\s*فندم", "", reply_text).strip()
+
+    reply_numbers = _extract_numeric_tokens(cleaned_reply)
+    if not reply_numbers:
+        return True, cleaned_reply, []
+
+    # Build grounded corpus of allowed numbers
+    grounded_corpus_parts: List[str] = []
+    if cached_post_digest:
+        grounded_corpus_parts.append(str(cached_post_digest.get("caption_text", "")))
+        grounded_corpus_parts.append(str(cached_post_digest.get("ocr_text", "")))
+        grounded_corpus_parts.append(str(cached_post_digest.get("ocr_extracted_text", "")))
+        grounded_corpus_parts.append(str(cached_post_digest.get("visual_digest_json", "")))
+        grounded_corpus_parts.append(str(cached_post_digest.get("detected_products_json", "")))
+        if isinstance(cached_post_digest.get("detected_products_and_prices"), list):
+            grounded_corpus_parts.append(json.dumps(cached_post_digest["detected_products_and_prices"], ensure_ascii=False))
+        if isinstance(cached_post_digest.get("visual_digest"), dict):
+            grounded_corpus_parts.append(json.dumps(cached_post_digest["visual_digest"], ensure_ascii=False))
+
+    if matched_saved_reply:
+        grounded_corpus_parts.append(str(matched_saved_reply.get("reply_text", "")))
+
+    if all_saved_replies:
+        for sr in all_saved_replies:
+            grounded_corpus_parts.append(str(sr.get("reply_text", "")))
+
+    allowed_numbers = set(_extract_numeric_tokens(" ".join(grounded_corpus_parts)))
+
+    ungrounded = [n for n in reply_numbers if n not in allowed_numbers]
+    if ungrounded:
+        safe_handoff_reply = (
+            "أهلاً وسهلاً بك! يسعدنا تواصلك معنا. سيقوم فريقنا بتأكيد السعر والتفاصيل الدقيقة لك فوراً عبر الرسائل."
+        )
+        return False, safe_handoff_reply, ungrounded
+
+    return True, cleaned_reply, []
+
+
 
 class AgentDecision(BaseModel):
     """Strict Pydantic v2 schema for agent decisions."""
@@ -355,10 +419,11 @@ class GeminiOrchestrator:
             '  "confidence": 0.95\n'
             "}\n"
             "Rules:\n"
-            "1. If customer asks for price, ALWAYS quote the exact price directly in public_comment_reply (do not hide it or only say 'check DM'). State the price and details warmly and clearly.\n"
-            "2. If customer is insulting or severely toxic, set decision to DELETE or HIDE with appropriate toxicity_score.\n"
-            "3. If customer sends a payment receipt or complex dispute, set decision to HUMAN_HANDOFF.\n"
-            "4. Never say you are an AI or bot. Speak as the actual store/page team in warm, professional Modern Simplified Arabic (العامية الفصحى الميسرة) without any regional Egyptian terms like 'يا فندم'."
+            "1. If customer asks for price and an exact price is explicitly present in CACHED POST KNOWLEDGE or SUGGESTED SAVED REPLY, quote that exact price warmly in public_comment_reply.\n"
+            "2. STRICT ZERO-HALLUCINATION GUARD: NEVER invent, guess, or estimate any price or number that is not explicitly written in the CACHED POST KNOWLEDGE or SUGGESTED SAVED REPLY. If the customer asks for a price and no price is listed in the context, set decision to HUMAN_HANDOFF and write a polite Fusha_Colloquial reply stating that the team will confirm the exact price shortly.\n"
+            "3. If customer is insulting or severely toxic, set decision to DELETE or HIDE with appropriate toxicity_score.\n"
+            "4. If customer sends a payment receipt or complex dispute, set decision to HUMAN_HANDOFF.\n"
+            "5. Never say you are an AI or bot. Speak as the actual store/page team in warm, professional Modern Simplified Arabic (العامية الفصحى الميسرة) without any regional Egyptian terms like 'يا فندم'."
         )
 
         parts: List[Dict[str, Any]] = []
@@ -422,28 +487,67 @@ class GeminiOrchestrator:
         parts.append({"text": context_prompt})
 
         # Offline / deterministic fallback if no API keys are present
+        price_inquiry_keywords = ("سعر", "بكم", "بكام", "كم السعر", "الاسعار", "الأسعار", "تكلفة", "قيمة", "price", "how much")
+        is_price_inquiry = any(kw in (inbound_text or "").lower() for kw in price_inquiry_keywords)
+
         if not self.buckets:
             # Deterministic fallback logic in Simplified Arabic (Fusha Colloquial)
             if matched_saved_reply:
                 reply = matched_saved_reply.get("reply_text")
+                decision_val = "REPLY"
             elif cached_post_digest and prods_list:
                 prod = prods_list[0] if len(prods_list) > 0 else {}
                 p_name = prod.get("product_name") or prod.get("item", "الباقة")
-                price = prod.get("price_expression") or prod.get("price", "السعر موضح بالمنشور")
-                reply = f"أهلاً وسهلاً بك يا {sender_name}! يسعدنا تواصلك معنا. سعر {p_name} هو {price}. والتفاصيل كاملة متوفرة لدينا، تفضل بمراسلتنا لتأكيد طلبك."
+                price = prod.get("price_expression") or prod.get("price", "")
+                if price:
+                    reply = f"أهلاً وسهلاً بك يا {sender_name}! يسعدنا تواصلك معنا. سعر {p_name} هو {price}. والتفاصيل كاملة متوفرة لدينا، تفضل بمراسلتنا لتأكيد طلبك."
+                    decision_val = "REPLY"
+                else:
+                    reply = "أهلاً وسهلاً بك! يسعدنا تواصلك معنا. سيقوم فريقنا بتأكيد السعر والتفاصيل الدقيقة لك فوراً عبر الرسائل."
+                    decision_val = "HUMAN_HANDOFF"
+            elif is_price_inquiry:
+                reply = "أهلاً وسهلاً بك! يسعدنا تواصلك معنا. سيقوم فريقنا بتأكيد السعر والتفاصيل الدقيقة لك فوراً عبر الرسائل."
+                decision_val = "HUMAN_HANDOFF"
             else:
                 reply = f"أهلاً وسهلاً بك يا {sender_name}! يسعدنا تواصلك معنا وفريق خدمة العملاء جاهز لمساعدتك في أي استفسار."
+                decision_val = "REPLY"
 
             return AgentDecision(
                 understood_context=f"Inbound {interaction_type} from {sender_name}: {inbound_text[:50]}",
-                decision="REPLY",
+                decision=decision_val,
                 public_comment_reply=reply if interaction_type == "comment" else None,
                 private_dm_reply=reply if interaction_type == "dm" else None,
-                moderation_reason=None,
+                moderation_reason="Ungrounded price inquiry handoff" if decision_val == "HUMAN_HANDOFF" else None,
                 toxicity_score=0.0,
                 confidence=0.98,
             )
 
         raw_json = self._call_gemini_raw([{"parts": parts}], system_instruction=system_instruction)
         parsed = json.loads(raw_json)
-        return AgentDecision(**parsed)
+        decision_obj = AgentDecision(**parsed)
+
+        # Enforce strict Zero-Hallucination Price Grounding Guard on LLM output
+        for field_name in ("public_comment_reply", "private_dm_reply"):
+            field_val = getattr(decision_obj, field_name)
+            if field_val:
+                is_grounded, sanitized_text, ungrounded_nums = validate_reply_price_grounding(
+                    reply_text=field_val,
+                    cached_post_digest=cached_post_digest,
+                    matched_saved_reply=matched_saved_reply,
+                )
+                setattr(decision_obj, field_name, sanitized_text)
+                if not is_grounded:
+                    logger.warning(
+                        f"Price Hallucination Guard intercepted ungrounded numbers {ungrounded_nums} in {field_name}. Escalating to HUMAN_HANDOFF."
+                    )
+                    decision_obj.decision = "HUMAN_HANDOFF"
+                    decision_obj.moderation_reason = f"Intercepted ungrounded price numbers: {ungrounded_nums}"
+
+        # Also if customer explicitly asked for price and neither post nor saved reply has any grounded numbers, ensure HUMAN_HANDOFF if LLM tried to reply without price confirmation
+        if is_price_inquiry and not prods_list and not matched_saved_reply:
+            has_grounded_digits = bool(_extract_numeric_tokens(str(cached_post_digest or "")))
+            if not has_grounded_digits and decision_obj.decision == "REPLY":
+                decision_obj.decision = "HUMAN_HANDOFF"
+                decision_obj.moderation_reason = "Price inquiry on post with no listed price; escalated for human confirmation."
+
+        return decision_obj

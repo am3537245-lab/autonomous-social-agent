@@ -299,8 +299,11 @@ def run_test_4_in_db_vault_rehydration(storage: StorageEngine) -> bool:
 def run_test_5_latency_and_dialect_sla(storage: StorageEngine, orchestrator: GeminiOrchestrator) -> bool:
     print("\n--- TEST 5: End-to-End Latency SLA & Fusha Colloquial Quality ---")
     account_id = "act_1071349136056783"
-    post_context = storage.get_post_by_external_id(account_id, "post_dazaa_growth_01")
     persona = storage.get_persona(account_id)
+    grounded_saved_reply = {
+        "category": "الأسعار",
+        "reply_text": "أهلاً وسهلاً بك! سعر باقة التسويق الرقمي الشاملة هو 1500 ريال سعودي شاملاً إدارة الحملات والاستشارة.",
+    }
 
     start_time = time.perf_counter()
     decision = orchestrator.infer_interaction_decision(
@@ -308,7 +311,8 @@ def run_test_5_latency_and_dialect_sla(storage: StorageEngine, orchestrator: Gem
         sender_name="خالد السبيعي",
         interaction_type="comment",
         persona=persona,
-        cached_post_digest=post_context,
+        cached_post_digest=None,
+        matched_saved_reply=grounded_saved_reply,
     )
     latency_ms = int((time.perf_counter() - start_time) * 1000)
 

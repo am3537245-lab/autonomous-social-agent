@@ -132,113 +132,51 @@ class ActiveAssociationOracle:
     async def _verify_meta_scopes(
         self, account_id: str, account: Dict[str, Any], cookies: Dict[str, str]
     ) -> PageVerificationResult:
-        """Verify Meta Business Suite session, page scopes, and Instagram linkage."""
-        c_user = cookies.get("c_user")
-        xs = cookies.get("xs")
-        page_id = account.get("page_id") or "1071349136056783"
-        business_id = account.get("business_id") or "766871999177306"
-        page_name = account.get("page_name", "Dazaa Marketing")
+        """Truthfully verify Meta Page & Business Suite session via MetaSessionClient.
 
-        if not c_user or not xs:
-            return PageVerificationResult(
-                account_id=account_id,
-                platform="meta",
-                page_id=page_id,
-                page_name=page_name,
-                business_id=business_id,
-                session_valid=False,
-                can_moderate_comments=False,
-                can_send_messages=False,
-                health_status=PageHealthStatus.CHECKPOINT,
-                details={"error": "Missing c_user or xs authentication cookies."},
-            )
+        Never fabricates ACTIVE status on failure or invents Instagram IDs.
+        """
+        from core.meta_client import MetaSessionClient
 
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/124.0.0.0 Safari/537.36",
-            "Accept": "*/*",
-            "X-FB-Friendly-Name": "CometModernPageInboxQuery",
-        }
+        meta_client = MetaSessionClient(storage=self.storage, browser_manager=self.browser_manager)
+        probe = await meta_client.probe_live_session(account_id)
 
-        # Check for associated Instagram account in cookies or probe
-        ig_business_id = cookies.get("ig_did") or cookies.get("ds_user_id") or f"ig_{page_id}"
+        raw_status = probe.get("health_status", "DISCONNECTED")
+        if raw_status == "ACTIVE":
+            health = PageHealthStatus.ACTIVE
+        elif raw_status == "CHECKPOINT":
+            health = PageHealthStatus.CHECKPOINT
+        elif raw_status == "RESTRICTED":
+            health = PageHealthStatus.RESTRICTED
+        else:
+            health = PageHealthStatus.DISCONNECTED
 
-        try:
-            target_url = f"https://business.facebook.com/latest/?asset_id={page_id}&business_id={business_id}"
-            resp = requests.get(
-                target_url,
-                cookies=cookies,
-                headers=headers,
-                timeout=8.0,
-                allow_redirects=False,
-            )
+        is_valid = bool(probe.get("session_valid", False))
+        ig_id = probe.get("instagram_business_account_id") or ""
 
-            if resp.status_code == 302 and "checkpoint" in resp.headers.get("Location", "").lower():
-                self.storage.update_account_status(account_id, "needs_challenge")
-                return PageVerificationResult(
-                    account_id=account_id,
-                    platform="meta",
-                    page_id=page_id,
-                    business_id=business_id,
-                    page_name=page_name,
-                    session_valid=False,
-                    can_moderate_comments=False,
-                    can_send_messages=False,
-                    health_status=PageHealthStatus.CHECKPOINT,
-                    details={"checkpoint_url": resp.headers.get("Location")},
-                )
-
-            # Look for linked Instagram account in response text if available
-            if resp.text:
-                m_ig = re.search(r'"instagram_business_account_id"\s*:\s*"([0-9]+)"', resp.text)
-                if m_ig:
-                    ig_business_id = m_ig.group(1)
-
-            # Healthy active session
-            self.storage.update_account_status(account_id, "active")
-            return PageVerificationResult(
-                account_id=account_id,
-                platform="meta",
-                page_id=page_id,
-                business_id=business_id,
-                instagram_business_account_id=ig_business_id,
-                page_name=page_name,
-                session_valid=True,
-                can_moderate_comments=True,
-                can_send_messages=True,
-                health_status=PageHealthStatus.ACTIVE,
-                details={
-                    "user_id": c_user,
-                    "asset_id": page_id,
-                    "business_id": business_id,
-                    "status_code": resp.status_code,
-                    "inbox_verified": True,
-                    "instagram_linked": bool(ig_business_id),
-                },
-            )
-        except Exception as e:
-            logger.warning(f"Live network probe warning for {account_id}: {e}")
-            # Resilient fallback: cookies exist and are structurally valid
-            self.storage.update_account_status(account_id, "active")
-            return PageVerificationResult(
-                account_id=account_id,
-                platform="meta",
-                page_id=page_id,
-                business_id=business_id,
-                instagram_business_account_id=ig_business_id,
-                page_name=page_name,
-                session_valid=True,
-                can_moderate_comments=True,
-                can_send_messages=True,
-                health_status=PageHealthStatus.ACTIVE,
-                details={
-                    "verified_via": "structural_session_vault",
-                    "c_user": c_user,
-                    "asset_id": page_id,
-                    "business_id": business_id,
-                    "inbox_verified": True,
-                    "instagram_linked": True,
-                },
-            )
+        return PageVerificationResult(
+            account_id=account_id,
+            platform="meta",
+            page_id=probe.get("page_id") or account.get("page_id") or "1071349136056783",
+            business_id=probe.get("business_id") or account.get("business_id") or "766871999177306",
+            instagram_business_account_id=ig_id,
+            page_name=probe.get("page_name") or account.get("page_name", "Dazaa Marketing"),
+            session_valid=is_valid,
+            can_moderate_comments=bool(probe.get("can_moderate_comments", False)),
+            can_send_messages=bool(probe.get("can_send_messages", False)),
+            health_status=health,
+            details={
+                "actor_id": probe.get("actor_id", ""),
+                "c_user": probe.get("c_user", ""),
+                "i_user": probe.get("i_user", ""),
+                "fb_dtsg_present": bool(probe.get("fb_dtsg_present", False)),
+                "fb_dtsg_preview": probe.get("fb_dtsg_preview", ""),
+                "inbox_verified": bool(probe.get("inbox_verified", False)),
+                "instagram_linked": bool(ig_id),
+                "http_status": probe.get("http_status", 0),
+                "reason": probe.get("reason", ""),
+            },
+        )
 
     async def _verify_tiktok_scopes(
         self, account_id: str, account: Dict[str, Any], cookies: Dict[str, str]
